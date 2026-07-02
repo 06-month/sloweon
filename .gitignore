@@ -1,0 +1,20 @@
+# Dependencies
+web/node_modules/
+
+# Next.js Build
+web/.next/
+web/*.tsbuildinfo
+web/next-env.d.ts
+
+# Database
+web/prisma/dev.db
+web/prisma/dev.db-journal
+
+# Env
+web/.env
+web/.env*.local
+
+# System/ZIP Files
+*.zip
+.DS_Store
+.asset_generation_state/

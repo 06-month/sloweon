@@ -1,0 +1,20 @@
+{
+  "id": "top_16",
+  "category": "top",
+  "name": "Off-White Lightweight Zip Knit Jacket",
+  "korean_name": "오프화이트 라이트웨이트 집 니트 자켓",
+  "color": "off-white",
+  "material": "lightweight knit",
+  "fit": "relaxed fit",
+  "design_notes": "minimal zip-up knit jacket, clean front, soft ribbed hem",
+  "styling_notes": "charcoal pleated summer trousers",
+  "price_krw": 139000,
+  "detail_image_path": "tops/top_16/detail_image.png",
+  "worn_image_path": "tops/top_16/worn_image.png",
+  "lookbook_image_path": "tops/top_16/lookbook_image.png",
+  "lookbook_location": "riverside walkway in summer light",
+  "short_description": "off-white lightweight knit item with relaxed fit and minimal zip-up knit jacket, clean front, soft ribbed hem.",
+  "detail_image_prompt": "A clean e-commerce product detail image for a fictional Korean men's contemporary fashion brand, summer collection. Minimal domestic designer brand mood, relaxed silhouette, premium but understated. Studio white or very light grey background, soft diffused lighting, garment-first composition. Featured item: Off-White Lightweight Zip Knit Jacket, off-white, lightweight knit, relaxed fit. Show realistic textile texture, stitching, seams, collar or waistband construction, hem, pocket, buttons, pleats, or natural fabric drape depending on the garment. The product should be clearly visible and commercially usable for an online shopping mall demo. No real brand references, no unrealistic clothing construction. Strict visual rule: Do not generate any visible logo, brand mark, clothing label, neck label, tag, watermark, printed text, embroidered text, typography, graphic symbol, fake brand name, or readable/unreadable text anywhere in the image. All garments must be completely plain and unbranded. If a garment would normally have a neck label, replace it with a blank seam or no visible label.",
+  "worn_image_prompt": "A clean e-commerce worn product image for a fictional Korean men's contemporary fashion brand, summer collection. Full-body young East Asian male model, neutral expression, natural standing pose, front 3/4 angle, studio white or very light grey background, soft diffused lighting. Featured item: Off-White Lightweight Zip Knit Jacket, off-white, lightweight knit, relaxed fit. Style it with minimal matching garments from the same fictional summer collection: charcoal pleated summer trousers. Product must be clearly visible. Relaxed silhouette, premium but understated, realistic fabric texture, natural drape, accurate seams and proportions. No excessive styling, no distorted hands, no extra limbs, no unrealistic clothing construction. Strict visual rule: Do not generate any visible logo, brand mark, clothing label, neck label, tag, watermark, printed text, embroidered text, typography, graphic symbol, fake brand name, or readable/unreadable text anywhere in the image. All garments must be completely plain and unbranded. If a garment would normally have a neck label, replace it with a blank seam or no visible label.",
+  "lookbook_image_prompt": "A summer lookbook image for a fictional Korean men's contemporary domestic fashion brand. Quiet luxury, minimal Seoul menswear mood, relaxed tailoring, breathable summer fabrics, muted neutral color palette. Young East Asian male model, calm expression, natural editorial pose. Featured item: Off-White Lightweight Zip Knit Jacket, off-white, lightweight knit, relaxed fit. Style it with: charcoal pleated summer trousers. Location: riverside walkway in summer light. Soft natural light, refined composition, clean negative space, premium editorial e-commerce lookbook photography, realistic fabric movement. No real brand references, no distorted anatomy. Strict visual rule: Do not generate any visible logo, brand mark, clothing label, neck label, tag, watermark, printed text, embroidered text, typography, graphic symbol, fake brand name, or readable/unreadable text anywhere in the image. All garments must be completely plain and unbranded. If a garment would normally have a neck label, replace it with a blank seam or no visible label."
+}

@@ -1,0 +1,378 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- 회원/인증 ----------
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         String    @default("MEMBER") // MEMBER | ADMIN
+  status       String    @default("ACTIVE") // ACTIVE | DORMANT | SUSPENDED | WITHDRAWN
+  height       Int?
+  weight       Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+  cartItems    CartItem[]
+  orders       Order[]
+  restockRequests RestockRequest[]
+  addresses    Address[]
+  reviews      Review[]
+  userCoupons  UserCoupon[]
+  pointLedgers PointLedger[]
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------- 상품 ----------
+
+model Product {
+  id               String    @id // menswear_demo_assets의 상품 id를 그대로 사용 (top_01 등) — 이미지 매칭 키
+  name             String
+  koreanName       String
+  categorySlug     String // top | bottom
+  color            String
+  material         String
+  fit              String
+  designNotes      String
+  stylingNotes     String
+  shortDescription String
+  price            Int
+  salePrice        Int?
+  status           String    @default("ON_SALE") // 판매중 | 품절 | 숨김 | 판매중지 | 출시예정 → ON_SALE 등 코드로 관리
+  detailImagePath  String // menswear_demo_assets 기준 상대 경로
+  wornImagePath    String
+  lookbookImagePath String
+  publishedAt      DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  variants         ProductVariant[]
+  sizeSpecs        SizeSpec[]
+  modelFit         ModelFit?
+  lookbookItems    LookbookItem[]
+  reviews          Review[]
+
+  @@index([categorySlug, status])
+}
+
+model ProductVariant {
+  id        String   @id @default(cuid())
+  productId String
+  colorName String
+  size      String
+  sku       String   @unique
+  stock     Int      @default(0)
+  status    String   @default("ON_SALE") // ON_SALE | SOLD_OUT | HIDDEN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cartItems CartItem[]
+  orderItems OrderItem[]
+  restockRequests RestockRequest[]
+  inventoryLedgers InventoryLedger[]
+  exchangeTargets  ExchangeReturnRequest[] @relation("ExchangeTarget")
+
+  @@unique([productId, colorName, size])
+  @@index([productId])
+}
+
+model SizeSpec {
+  id            String  @id @default(cuid())
+  productId     String
+  categoryGroup String // TOP | BOTTOM
+  size          String
+  totalLength   Float?
+  shoulder      Float?
+  chest         Float?
+  sleeve        Float?
+  waist         Float?
+  rise          Float?
+  thigh         Float?
+  hem           Float?
+  product       Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, size])
+}
+
+model ModelFit {
+  id          String  @id @default(cuid())
+  productId   String  @unique
+  modelName   String
+  height      Int
+  weight      Int
+  wearingSize String
+  fitComment  String
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+// ---------- 룩북 ----------
+
+model Lookbook {
+  id          String   @id @default(cuid())
+  title       String
+  season      String
+  styleTags   String // 쉼표 구분
+  imagePath   String // menswear_demo_assets 기준 상대 경로
+  description String
+  status      String   @default("PUBLISHED") // DRAFT | PUBLISHED | HIDDEN
+  publishedAt DateTime @default(now())
+  items       LookbookItem[]
+}
+
+model LookbookItem {
+  id           String   @id @default(cuid())
+  lookbookId   String
+  productId    String
+  displayOrder Int      @default(0)
+  lookbook     Lookbook @relation(fields: [lookbookId], references: [id], onDelete: Cascade)
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([lookbookId, productId])
+}
+
+// ---------- 장바구니 ----------
+
+model CartItem {
+  id             String   @id @default(cuid())
+  userId         String?
+  guestSessionId String?
+  variantId      String
+  quantity       Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variant        ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, variantId])
+  @@unique([guestSessionId, variantId])
+  @@index([guestSessionId])
+}
+
+// ---------- 주문/결제 ----------
+
+model Order {
+  id                 String   @id @default(cuid())
+  orderNumber        String   @unique
+  userId             String?
+  status             String   @default("PAID") // PENDING | PAID | PREPARING | SHIPPED | DELIVERED | CANCELLED | REFUNDED
+  totalProductAmount Int
+  discountAmount     Int      @default(0)
+  pointUsedAmount    Int      @default(0)
+  shippingFee        Int
+  finalAmount        Int
+  receiverName       String
+  receiverPhone      String
+  zipCode            String
+  address1           String
+  address2           String?
+  deliveryMemo       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User?    @relation(fields: [userId], references: [id])
+  items              OrderItem[]
+  payment            Payment?
+  statusHistories    OrderStatusHistory[]
+  usedCoupons        UserCoupon[]
+
+  @@index([userId])
+}
+
+model OrderItem {
+  id                  String @id @default(cuid())
+  orderId             String
+  productId           String
+  variantId           String
+  productNameSnapshot String
+  colorSnapshot       String
+  sizeSnapshot        String
+  quantity            Int
+  unitPrice           Int
+  totalPrice          Int
+  order               Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant             ProductVariant @relation(fields: [variantId], references: [id])
+  review              Review?
+  claims              ExchangeReturnRequest[]
+
+  @@index([orderId])
+}
+
+model Payment {
+  id         String    @id @default(cuid())
+  orderId    String    @unique
+  provider   String    @default("MOCK_PG")
+  method     String // CARD | EASY_PAY | BANK_TRANSFER
+  amount     Int
+  status     String    @default("PAID") // READY | PAID | FAILED | CANCELLED | REFUNDED
+  paymentKey String    @unique
+  approvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model OrderStatusHistory {
+  id             String   @id @default(cuid())
+  orderId        String
+  previousStatus String?
+  nextStatus     String
+  changedBy      String // SYSTEM | 사용자/관리자 id
+  createdAt      DateTime @default(now())
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+// ---------- 재입고 알림 ----------
+
+model RestockRequest {
+  id         String    @id @default(cuid())
+  userId     String?
+  guestEmail String?
+  variantId  String
+  status     String    @default("REQUESTED") // REQUESTED | NOTIFIED | CANCELLED
+  notifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User?     @relation(fields: [userId], references: [id])
+  variant    ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([variantId, status])
+}
+
+// ---------- 배송지 ----------
+
+model Address {
+  id           String   @id @default(cuid())
+  userId       String
+  receiverName String
+  phone        String
+  zipCode      String
+  address1     String
+  address2     String?
+  deliveryMemo String?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------- 리뷰 ----------
+
+model Review {
+  id            String   @id @default(cuid())
+  userId        String
+  productId     String
+  orderItemId   String   @unique
+  rating        Int
+  content       String
+  height        Int?
+  weight        Int?
+  purchasedSize String
+  fitFeedback   String // SMALL | JUST | LARGE
+  status        String   @default("PUBLISHED") // PUBLISHED | HIDDEN
+  createdAt     DateTime @default(now())
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItem     OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([productId, status])
+}
+
+// ---------- 교환/반품 ----------
+
+model ExchangeReturnRequest {
+  id                 String   @id @default(cuid())
+  orderItemId        String
+  requestType        String // EXCHANGE | RETURN
+  reasonCode         String // SIZE_SMALL | SIZE_LARGE | COLOR_DIFFERENT | CHANGE_OF_MIND | DEFECTIVE | OTHER
+  reasonDetail       String?
+  requestedVariantId String?
+  status             String   @default("REQUESTED") // REQUESTED | APPROVED | REJECTED | COMPLETED
+  rejectedReason     String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  orderItem          OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  requestedVariant   ProductVariant? @relation("ExchangeTarget", fields: [requestedVariantId], references: [id])
+
+  @@index([status])
+}
+
+// ---------- 쿠폰/포인트 ----------
+
+model Coupon {
+  id             String    @id @default(cuid())
+  code           String    @unique
+  name           String
+  discountType   String // RATE | AMOUNT
+  discountValue  Int
+  minOrderAmount Int       @default(0)
+  status         String    @default("ACTIVE") // ACTIVE | PAUSED | EXPIRED
+  endsAt         DateTime?
+  userCoupons    UserCoupon[]
+}
+
+model UserCoupon {
+  id       String    @id @default(cuid())
+  userId   String
+  couponId String
+  status   String    @default("ISSUED") // ISSUED | USED
+  issuedAt DateTime  @default(now())
+  usedAt   DateTime?
+  orderId  String?
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coupon   Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  order    Order?    @relation(fields: [orderId], references: [id])
+
+  @@index([userId, status])
+}
+
+model PointLedger {
+  id            String   @id @default(cuid())
+  userId        String
+  changeType    String // EARN | USE | REFUND
+  amount        Int // 적립/환급 양수, 사용 음수
+  balanceAfter  Int
+  referenceType String?
+  referenceId   String?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------- 재고 원장 ----------
+
+model InventoryLedger {
+  id             String   @id @default(cuid())
+  variantId      String
+  changeType     String // ORDER | CANCEL | ADMIN_ADJUST | SEED
+  quantityDelta  Int
+  beforeQuantity Int
+  afterQuantity  Int
+  referenceType  String?
+  referenceId    String?
+  createdBy      String   @default("SYSTEM")
+  createdAt      DateTime @default(now())
+  variant        ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([variantId])
+}

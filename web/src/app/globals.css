@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+/*
+  SLOWEON 디자인 토큰 — docs/design-instruct.md + menswear_demo_assets/docs/brand_direction.md 기반
+  - 무채색·뮤트 베이스(오프화이트/아이보리/차콜) + 포인트 1색(테라코타, 세일/강조 전용)
+  - 세리프 디스플레이(브랜드 모먼트) + 가독 산세리프 본문
+  - 8pt 스케일 여백, 얇은 라인, 넓은 자간 대문자 라벨
+*/
+@theme {
+  --color-bg: #f6f4ef;
+  --color-surface: #fdfcfa;
+  --color-ink: #211f1c;
+  --color-ink-soft: #6e695f;
+  --color-ink-faint: #a29c8f;
+  --color-line: #e5e1d6;
+  --color-line-strong: #cfc9bb;
+  --color-sand: #cbbba0;
+  --color-accent: #a3552e; /* 세일/포인트 전용 */
+  --color-success: #4f6b4a;
+
+  --font-display: "Cormorant Garamond", "Didot", "Hoefler Text", Georgia, "AppleMyungjo",
+    "Nanum Myeongjo", serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo",
+    "Noto Sans KR", "Segoe UI", sans-serif;
+}
+
+html {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+/* 상단 정보 라벨(넓은 자간 대문자) */
+.label-caps {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-ink-soft);
+}
+
+/* 세리프 디스플레이 */
+.display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* 포커스 링 — 접근성(FE-011) */
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+/* 얇은 구분선 유틸 */
+.hairline {
+  border-color: var(--color-line);
+}

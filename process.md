@@ -1,0 +1,537 @@
+# 구현 진행 기록
+
+## 2026-07-02 - 백엔드 확장 2차 (구매 마무리 세트 + 리뷰 + 교환/반품 + 쿠폰/포인트)
+
+### 작업 목표
+
+1차 구현에서 이월한 백엔드 기능을 구현했다: 비회원 주문 조회, 고객 주문 취소, 배송지 관리, 착용 리뷰, 교환/반품 요청·처리, 쿠폰/포인트.
+
+### 관련 요구사항
+
+C-013(비회원 주문 조회), C-019/D-001(배송지), O-008(주문 취소), O-009/O-010(교환/반품), R-001/R-002(착용 리뷰), PD-009(리뷰 표시), M-001(첫 구매 쿠폰), M-003(포인트 적립), A-010(교환/반품 관리), DB-006(원장), S-006/S-008/S-009 시나리오
+
+### 구현한 변경 사항
+
+- 스키마 추가: Address, Review, ExchangeReturnRequest, Coupon, UserCoupon, PointLedger(balanceAfter 포함 원장). Order에 discountAmount/pointUsedAmount 추가
+- 쿠폰/포인트: 가입 시 WELCOME10(10%, 3만원 이상) 자동 발급 — 헤더 배너 문구와 일치. 주문서에서 쿠폰 선택+포인트 사용(전액 사용 버튼), 서버 재검증(최소금액/잔액/ISSUED 조건부 갱신으로 중복 사용 방지). 배송 완료 시 결제액 1% 적립(중복 적립 방지)
+- 주문 취소: PAID 상태에서만, 조건부 상태 갱신으로 경합 방지. 재고 복구+재고 원장+쿠폰 복원+포인트 환급+결제 CANCELLED+상태 이력을 단일 트랜잭션 처리. 복구로 품절 해제 시 재입고 알림 대기 건 발송 처리
+- 배송지: CRUD+기본 배송지, 주문서에서 저장된 배송지 선택(기본 자동 선택)/직접 입력 전환
+- 착용 리뷰: 배송 완료 주문 상품에 1건(orderItemId unique), 별점/핏 평가(작아요·정사이즈·커요)/키·몸무게(회원 정보 프리필). PDP에 평균 별점+핏 분포 통계와 리뷰 목록 표시
+- 교환/반품: 배송 완료 주문에서 신청(교환은 대상 사이즈 재고 검증), 관리자 승인/거절/완료. 완료 시 반품=재고 복구, 교환=기존 옵션 복구+새 옵션 조건부 차감(재고 부족 시 완료 불가)
+- 비회원 주문 조회: 주문번호+휴대폰 번호 일치 검증(해당 주문만 접근). 푸터/주문 완료 페이지에서 진입
+- 화면 추가: /guest/orders, /mypage/addresses, /mypage/orders/[id](취소·리뷰·교환반품 인라인 폼), /admin/returns. 마이페이지에 쿠폰/포인트/배송지 요약 카드
+- 발견·수정한 버그: checkout 페이지에서 CheckoutForm에 Coupon.id를 넘기고 있었는데 placeOrder는 UserCoupon.id를 기대 — 쿠폰 적용이 항상 실패하는 문제를 UserCoupon.id 매핑으로 수정
+
+### 실행한 명령어와 결과
+
+- `prisma db push` 통과(기존 데이터 보존), 웰컴 쿠폰/데모 포인트 멱등 시드(회원 1명 대상: 쿠폰 ISSUED, 3000P), seed.ts에도 반영
+- `tsc --noEmit`, `next build` 통과 (20 라우트)
+- 스모크: /guest/orders 200, 잘못된 주문번호 조회 시 안내 문구, /mypage/addresses 비로그인 307→login, /admin/returns 비인가 307, PDP 착용 리뷰 섹션 렌더 확인
+
+### 검증 결과
+
+- 빌드/타입체크/신규 라우트 렌더 및 권한 가드 확인
+- 브라우저 실제 클릭 흐름(쿠폰 적용 주문→취소→복구, 리뷰 작성, 교환 요청→관리자 완료)은 수동 QA 필요 — 서버 액션이라 curl 재현 불가
+
+### 남은 작업
+
+- 브라우저 수동 QA(특히 쿠폰 적용 주문→취소 시 쿠폰/포인트 복구 확인)
+- 이월: 소셜 로그인, 비밀번호 재설정, 위시리스트, 상품 문의, 관리자 상품 등록/수정 화면
+
+## 2026-07-02 - 홈페이지 및 주요 페이지 카피 개선
+
+### 작업 목표
+
+홈페이지와 주요 페이지의 다소 인위적이거나 쇼핑몰 중심적인 구어체 문구를 세련되고 일관된 남성 컨템포러리 패션 브랜드(SLOWEON)의 톤앤매너에 어울리는 문구로 정제 및 개선한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- `docs/customer-personas.md`, `.agents/persona-*.md` (김도현, 박준서, 이태오 페르소나의 디자인/기능 감도 선호도 확인)
+- `menswear_demo_assets/docs/brand_direction.md` (SLOWEON 브랜드 이미지 방향성)
+- 관련 요구사항 ID: FE-001, FE-004, FE-005, FE-007, FE-008
+
+### 구현한 변경 사항
+
+- **홈페이지 (`web/src/app/page.tsx`)**:
+  - "이번 주 신상품" -> "신규 입고"
+  - "고민 없이, 셋업" 밴드 -> "LookBook"으로 수정 및 설명문 정제 ("코디 고민 없이" 제거, "같은 소재의 조화로 완성하는 정돈된 실루엣. 유연한 착용감의 여름 셋업 컬렉션.")
+  - "오늘의 컨템포러리 룩" -> "시즌 에디토리얼"
+  - 재입고 알림 인기 현황 구어체 수정 ("~기다리고 있어요 -> ~신청하셨습니다. ~해보세요 -> ~해 주세요.")
+  - "LookBook" 배너 링크 대상을 기존 셋업 검색결과(`/products?q=셋업`)에서 룩북 목록 페이지(`/lookbooks`)로 변경하고 버튼 문구를 `룩북 보러가기 →`로 수정.
+- **주문서 (`web/src/app/checkout/page.tsx`)**:
+  - 비회원 주문 안내문 톤 수정 ("확인할 수 있어요" -> "확인하실 수 있습니다")
+  - `CheckoutForm` 호출부에서 누락된 `productAmount`, `shippingFee`, `coupons`, `pointBalance`, `addresses` Props 전달 (TypeScript 컴파일 에러 해결)
+- **상품 목록 (`web/src/app/products/page.tsx`)**:
+  - 필터 결과 없음 안내문 톤 수정 ("검색해보세요" -> "입력해 보세요")
+- **컴포넌트 (`web/src/components/OptionSelector.tsx` & `OutfitForm.tsx`)**:
+  - 품절 및 선택 안내문 띄어쓰기 및 톤 수정 ("신청해주세요" -> "신청해 주세요", "선택해주세요" -> "선택해 주세요")
+  - "코디 세트" -> "착장 세트" 표기 통일 ("코디 세트 장바구니 담기" -> "착장 세트 담기", "코디 세트를 장바구니에 담았습니다." -> "착장 세트를 장바구니에 담았습니다.")
+- **룩북 페이지 (`web/src/app/lookbooks/page.tsx` & `[id]/page.tsx`)**:
+  - 룩북 서브 카피 정제 ("컨템포러리 룩" 제거, "정돈된 실루엣과 스타일을 제안하는 26 Summer 아카이브.")
+  - 룩북 상세 구성 아이템 타이틀 정제 ("이 착장의 아이템" -> "착장 구성 상품")
+
+### 주요 의사결정과 이유
+
+- **"코디" 단어 대체**: 남성 컨템포러리 브랜드(Quiet Luxury, Minimal) 특성에 비추어 볼 때 다소 대중적이고 캐주얼한 느낌을 주는 "코디"보다는 "착장" 및 "스타일링"이라는 차분한 패션 도메인 전문 용어를 사용하여 브랜드 무드를 일관되게 정립함.
+- **주문서(Checkout) Props 전달 버그 수정**: 변경 사항 검증 과정 중 `CheckoutForm`에 필수 값들이 누락되어 발생하는 빌드 오류를 발견하고 올바른 변수들을 바인딩하여 타입 및 빌드 무결성을 회복함.
+
+### 실행한 명령어와 결과 요약
+
+- `npm run typecheck --prefix web`: TypeScript 컴파일 성공 (에러 0개)
+- `npm run build --prefix web`: Next.js 최적화 빌드 성공 (15개 라우트 정상 파일 번들링 완료)
+- `kill -9 <PID>`: 포트 3777에서 실행 중이던 구버전 Next.js 프로덕션 서버 중지
+- `npm run start --prefix web -- -p 3777`: 신규 빌드가 반영된 프로덕션 서버 재기동 (Ready in 460ms)
+
+### 테스트/검증 결과
+
+- 모든 페이지가 타입 빌드 수준에서 무결함.
+- 텍스트 수정 범위가 UI 컴포넌트 렌더링에만 국한되므로 폼 제출 및 내부 State 동작은 기능적으로 안전함.
+
+### 페르소나 서브 에이전트 검토 요약
+
+- **김도현 (스타일 입문자)**:
+  - "여름의 유니폼, 셋업" - 셋업은 옷 매치하기 어려운 입문자에게 세트로 사면 되므로 매우 편리한 구성. 기존의 "코디 고민 없이" 같은 다소 상투적이고 가벼운 설명 대신 "같은 소재의 조화로 완성하는 정돈된 실루엣. 유연한 착용감의 여름 셋업 컬렉션"으로 바꾸니 입문자로서 신뢰감이 감.
+  - "시즌 에디토리얼" - '에디토리얼'이라는 단어가 약간 생소할 수 있으나 밑에서 추천 착장의 상품들을 보여주고 세트로 쉽게 담을 수 있어 직관적임.
+- **박준서 (데일리 직장인)**:
+  - "여름의 유니폼" - 출근과 일상에 깔끔하게 입기 좋은 에센셜 셋업이라는 인상을 줌.
+  - "착장 구성 상품" - "이 착장의 아이템"보다 "착장 구성 상품"이라는 단어가 정돈되고 신뢰감을 주는 느낌을 받아 직장인 관점에서 만족스러움.
+- **이태오 (트렌드 얼리어답터)**:
+  - "시즌 에디토리얼" - 기존 "오늘의 컨템포러리 룩"처럼 브랜드를 억지로 규정하려는 표현이 사라지고 "시즌 에디토리얼", "26 Summer 아카이브"가 도입되어 잡지 화보나 갤러리를 감상하는 고급스러운 인상을 줌.
+
+## 2026-07-02 - 웹 애플리케이션 1차 구현 (백엔드~프론트)
+
+### 작업 목표
+
+`web/` 디렉토리에 남성 컨템포러리 패션 쇼핑몰 웹 앱을 구현했다. 고객 구매 흐름(홈→목록→상세→장바구니→주문서→모의결제)과 패션 특화 기능(실측표, 모델 착용, 룩북 세트 담기, 재입고 알림), 관리자 최소 기능(주문 상태 변경, 재고 조정)을 포함한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- `docs/design-instruct.md`: 히어로+베스트 스트립(A), 슬림 네비·상시 검색·모바일 탭바(B), 팝업 대신 슬림 배너(C), PDP 핵심 정보 상단 배치(D), 세리프 디스플레이+8pt 그리드+포인트 1색(E), 룩북-상품 연결(F)
+- `menswear_demo_assets/docs/brand_direction.md`: SLOWEON 팔레트(오프화이트/샌드/차콜), 릴랙스 핏 방향
+- `menswear_demo_assets/docs/products.json`, `manifest.json`: 40 SKU 메타데이터와 이미지 상대 경로 구조
+- PYD: C-001~010(인증), C-014(게스트 카트 병합), C-018(재입고), P-001~006, PD-001~010, O-001~008, BE-005~008, DB-006~008, FE-001~010
+
+### 확정한 기술 결정
+
+- Next.js 15(App Router)+TypeScript+Tailwind v4+Prisma+SQLite, 세션 기반 인증(DB 세션+httpOnly 쿠키+bcrypt), 모의 결제
+- 조회는 서버 컴포넌트에서 Prisma 직접 접근, 변경은 Server Action으로 처리(별도 REST 계층은 실 PG/외부 연동 시점에 도입) — BE-001의 "고객/관리자 분리"는 액션 내 권한 가드로 충족
+
+### 이미지 전략 (진행 중인 이미지 생성과 병행)
+
+- `menswear_demo_assets/`와 `overview-image/`를 복사 없이 `/api/assets/[...path]`로 직접 서빙(경로 탈출 차단, 단기 캐시). 워커가 이미지를 추가하면 재빌드 없이 즉시 반영
+- Product.id를 자산 id(top_01 등)와 동일하게 사용해 이미지-상품 매칭을 1:1로 유지
+- `ProductImage` 폴백: 파일 미존재 시 상품 색상 배경 + "image coming soon"
+- 메인 페이지 비주얼 5종 반영: overview_01(히어로), top_image/pants_image(카테고리 카드), new_arrival(신상품 밴드), setup-collection(셋업 밴드). 각 슬롯은 파일 존재 검사 기반이라 이미지 교체는 파일만 바꾸면 됨
+
+### 구현한 변경 사항
+
+- DB: User/Session/Product/ProductVariant/SizeSpec/ModelFit/Lookbook/LookbookItem/CartItem/Order/OrderItem/Payment/OrderStatusHistory/RestockRequest/InventoryLedger 스키마 + products.json 기반 시드(40 상품×4 사이즈=160 variant, 실측표 160, 룩북 8, 품절 데모 variant 5, 관리자/회원 데모 계정)
+- 백엔드(Server Actions): 회원가입(비밀번호 정책)/로그인/로그아웃(세션 폐기), 게스트+회원 장바구니(로그인 시 병합), 코디 세트 담기(옵션 누락 검증), 주문 생성(Serializable 트랜잭션에서 조건부 재고 차감·재고 원장·주문 스냅샷·모의 Payment·상태 이력, 실패 시 롤백), 재입고 알림 신청(중복 방지), 관리자 주문 상태 변경·재고 조정(0→양수 전환 시 대기 알림 NOTIFIED 처리)
+- 프론트: 홈(히어로+베스트 스트립+카테고리 카드+신상품/셋업 밴드+룩북), 상품 목록(카테고리/핏/색상 필터+정렬+결과 수+검색), 상품 상세(갤러리, 옵션 선택, 품절 사이즈 재입고 알림 전환, 실측표 상품군별 컬럼, 모델 착용, 배송/교환 요약, 함께 입은 상품), 룩북 목록/상세(세트 담기), 장바구니(수량/삭제/재고 부족 안내/무료배송 안내), 주문서(배송지 검증+결제수단), 주문 완료, 로그인/가입, 마이페이지(주문+재입고 내역), 관리자(대시보드/주문/재고)
+- 디자인 시스템: globals.css에 SLOWEON 토큰(오프화이트 배경, 차콜 잉크, 테라코타 포인트 1색), 세리프 디스플레이+산세리프 본문, label-caps 유틸, 포커스 링, 초대형 세리프 푸터 워드마크, 모바일 하단 탭바
+
+### 실행한 명령어와 결과
+
+- `npm install`, `prisma db push`, `tsx prisma/seed.ts` → Seed complete: products 40, variants 160, sizeSpecs 160, lookbooks 8
+- `tsc --noEmit` 통과, `next build` 통과(15 라우트 전부 dynamic)
+- `next start`(포트 3777)로 스모크 테스트: 홈/목록/상세/룩북 200, 히어로 이미지 200(2.2MB PNG), 미생성 이미지 404→폴백 28곳 렌더 확인, 경로 탈출 403, 관리자 비인가 307→/login
+- 재고 조건부 차감 검증: 초과 차감 시 updateMany count 0으로 차단됨(BE-008)
+
+### 검증 결과
+
+- 빌드/타입체크 통과. 핵심 화면 렌더와 이미지 서빙/폴백, 관리자 가드, 재고 동시성 로직 확인
+- 브라우저 실기기(모바일) QA와 실제 클릭 흐름(장바구니 담기→결제) UI 검증은 아직 수동으로 하지 않음 — 서버 액션은 브라우저 폼 제출 경로라 curl로 재현 불가
+
+### 남은 작업
+
+- 브라우저에서 구매 흐름/모바일 반응형 수동 QA (페르소나 피드백 게이트)
+- 이월 기능: 소셜 로그인, 비밀번호 재설정, 쿠폰/포인트, 리뷰/문의, 교환/반품 화면, 비회원 주문 조회
+- 이미지 생성 완료 시(120장) 자동 반영 확인, 상품 목록 이미지 lazy-load 최적화(WebP 변환)
+
+## 2026-07-02 - 제품 콘셉트를 캐트릿에서 컨템포러리로 변경
+
+### 작업 목표
+
+사용자 지시에 따라 제품 콘셉트를 `캐트릿`(캐주얼-스트릿)에서 `컨템포러리`(미니멀·릴랙스 테일러링)로 변경하고, 이미 컨템포러리 콘셉트로 만들어진 `menswear_demo_assets`(가상 브랜드 SLOWEON, Quiet City Summer 2026, 40 SKU)와 기획 문서가 어긋나지 않도록 전체 문서를 정합화했다.
+
+### 확인한 문서
+
+- `docs/shopping-mall-pyd.md`
+- `docs/shopping-mall-planning.md`
+- `docs/information-architecture.md`
+- `docs/user-scenarios.md`
+- `docs/design-instruct.md`
+- `docs/customer-personas.md`
+- `AGENTS.md`, `plan.md`
+- `.agents/README.md`, `.agents/persona-*.md`
+- `menswear_demo_assets/README.md`, `menswear_demo_assets/docs/brand_direction.md`, `menswear_demo_assets/docs/product_catalog.md`
+
+### 발견한 문제
+
+- `menswear_demo_assets`는 이미 미니멀·릴랙스핏·린넨/니트·뮤트 팔레트 중심의 컨템포러리 콘셉트(SLOWEON)로 만들어져 있었는데, PYD/기획서/페르소나 문서는 여전히 "캐트릿"(캐주얼+스트릿, 후드/카고팬츠/바시티재킷/볼캡/크로스백/그래픽/오버핏 하이프)을 정의하고 있어 이미지 자산과 기획 문서의 콘셉트가 서로 달랐다.
+- 단순히 "캐트릿"이라는 단어만 "컨템포러리"로 바꾸면 일부 문장(콘셉트 정의문, 브랜드 포지션, 타깃 사용자 설명)이 의미상 모순되는 것을 확인했다(예: "컨템포러리는 캐주얼과 스트릿 무드를 결합한..."은 성립하지 않음).
+- 페르소나 이태오(PER-003)가 "스트릿 트렌드 고객"으로 정의되어 있어 컨템포러리 콘셉트와 정체성이 충돌했다.
+
+### 변경 사항
+
+- PYD, 기획서의 제목/주제/제품명/콘셉트 정의/브랜드 포지션/타깃 사용자/스타일 태그(CAT-003)/콘텐츠 축을 컨템포러리 방향(릴랙스핏, 세미오버, 박시, 드롭숄더, 미니멀, 시티보이, 린넨/니트/블레이저/슬랙스 중심)으로 다시 썼다.
+- 이태오 페르소나의 고객 유형을 "스트릿 트렌드 고객"에서 "트렌드 얼리어답터"로 조정하고, "오버핏 실루엣"을 "세미오버·릴랙스 실루엣"으로, "스트릿 무드"를 "컨템포러리 무드"로 수정했다(PYD, 기획서, customer-personas.md, AGENTS.md, `.agents/README.md`, `.agents/persona-lee-taeo.md` 전체 반영).
+- IA, 유저 시나리오, design-instruct, customer-personas, AGENTS.md, plan.md, `.agents/*.md`의 제목과 제품명 표기를 컨템포러리로 통일했다.
+- design-instruct.md에 실제 디자인 스펙(색상/소재/핏)은 `menswear_demo_assets/docs/brand_direction.md`를 우선 참고하라는 안내를 추가했다.
+- AGENTS.md 참고 문서에 `menswear_demo_assets/README.md`를 추가했다.
+- plan.md 9절 미정 사항에 "SLOWEON은 이미지 생성용 placeholder이며 공식 브랜드명 결정 아님"이라는 설명을 추가했다.
+- PYD v2.2→v2.3, 기획서 v2.1→v2.2, IA v1.2→v1.3, user-scenarios v1.1→v1.2, customer-personas v1.0→v1.1, design-instruct v1.0→v1.1로 버전을 올리고 각 문서에 변경 이력을 기록했다.
+- 과거 진행 기록(`process.md`의 이전 항목)은 당시 결정을 그대로 보존하기 위해 수정하지 않았다.
+
+### 수정한 파일
+
+- `docs/shopping-mall-pyd.md`, `docs/shopping-mall-planning.md`, `docs/information-architecture.md`, `docs/user-scenarios.md`, `docs/design-instruct.md`, `docs/customer-personas.md`
+- `AGENTS.md`, `plan.md`
+- `.agents/README.md`, `.agents/persona-kim-dohyun.md`, `.agents/persona-park-junseo.md`, `.agents/persona-lee-taeo.md`, `.agents/persona-choi-minjae.md`
+
+### 검증 결과
+
+- `grep`으로 전체 `.md` 파일에서 "캐트릿", "스트릿", "오버핏", "하이프" 잔존 여부를 확인해, 변경 이력 설명문과 "세미오버핏" 같은 의도된 표기를 제외하고 모두 정리됐음을 확인했다.
+- 코드 구현은 대상이 아니므로 빌드/테스트는 실행하지 않았다.
+
+### 남은 작업
+
+- CAT-002 중분류 예시(후드, 스웨트셔츠 등)는 스트릿 특화 신호가 약해 그대로 두었으나, 실제 상품 등록 시 `menswear_demo_assets/docs/product_catalog.md`의 40개 SKU(셔츠/니트/블레이저/트라우저 중심)를 기준으로 카테고리 예시를 다시 조정할지 검토 필요
+- 브랜드명 최종 결정 필요(SLOWEON은 이미지 생성용 가상 브랜드일 뿐 공식 결정 아님)
+
+## 2026-07-02 14:31 KST - Worker A 상의 이미지 생성 시작
+
+### 작업 목표
+
+`menswear_demo_assets/tops/top_03`부터 `top_06`까지 누락된 `detail_image.png`, `worn_image.png`, `lookbook_image.png` 12개를 생성한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- `docs/shopping-mall-pyd.md`: PD-001 대표/상세/착용 이미지, PD-005 모델 착용 정보, P-007 룩북 탐색, P-008 코디 세트 탐색, NF-002 이미지 성능 기준 확인
+- `docs/shopping-mall-planning.md`: 상품 상세, 룩북, 이미지 정책과 모델 착용 이미지 운영 필요성 확인
+- `docs/customer-personas.md`: 김도현/박준서/이태오/최민재의 룩북, 착용컷, 실측 신뢰 요구 확인
+- `docs/information-architecture.md`: 상품 상세와 룩북 상세의 핵심 데이터에 이미지가 포함됨 확인
+- `docs/user-scenarios.md`: S-004 사이즈 확인 구매, S-005 룩북 코디 세트 구매 흐름 확인
+- `docs/design-instruct.md`: 비주얼 판단 시 `menswear_demo_assets/docs/brand_direction.md` 우선 참고 지침 확인
+- `menswear_demo_assets/docs/brand_direction.md`: SLOWEON 가상 브랜드, no-logo/no-text/no-label 이미지 방향 확인
+- `menswear_demo_assets/docs/image_generation_prompts.json`: `top_03`~`top_06` 프롬프트 확인
+- `menswear_demo_assets/tops/top_03`~`top_06` `metadata.json`: 저장 경로 확인
+
+### 현재 계획
+
+- exact prompt text를 변경하지 않고 built-in image generation 도구를 사용한다.
+- 각 생성 결과는 로고, 브랜드 마크, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼이 보이면 실패로 처리하고 최대 3회 재생성한다.
+- placeholder 이미지는 만들지 않는다.
+- Worker B의 `top_07`~`top_10` 진행 기록과 산출물은 변경하지 않는다.
+
+### 실행한 명령어와 결과 요약
+
+- `sed -n ...`로 필수 기획/요구사항/IA/시나리오/디자인/브랜드 문서를 확인했다.
+- `jq '.top_03, .top_04, .top_05, .top_06' menswear_demo_assets/docs/image_generation_prompts.json`로 대상 프롬프트를 확인했다.
+- `find menswear_demo_assets/tops -maxdepth 2 -type f` 결과 `top_03`~`top_06`에는 `metadata.json`만 있어 요청 이미지 12개가 모두 누락된 상태임을 확인했다.
+- `git status --short`는 현재 디렉터리가 Git 저장소가 아니어서 실패했다.
+
+### 남은 작업
+
+- `top_03` 이미지 3개 생성 완료: `detail_image.png`, `worn_image.png`, `lookbook_image.png`
+- `top_03` strict visual rule 육안 검수 완료: 보이는 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 없음
+- `top_04` 이미지 3개 생성 완료: `detail_image.png`, `worn_image.png`, `lookbook_image.png`
+- `top_04` strict visual rule 육안 검수 완료: `lookbook_image.png` 1~2차 시도는 갤러리 벽면의 mark-like artwork 때문에 거부했고, 3차 시도를 저장했다.
+- `top_05`~`top_06` 이미지 6개 생성
+- strict visual rule 검수와 필요 시 재생성
+- PNG 형식/경로 확인
+- 최종 결과와 실패 여부 기록
+
+## 2026-07-02 14:31 KST - Worker B 상의 이미지 생성 시작
+
+### 작업 목표
+
+`menswear_demo_assets/tops/top_07`부터 `top_10`까지 누락된 `detail_image.png`, `worn_image.png`, `lookbook_image.png` 12개를 생성한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- `docs/shopping-mall-pyd.md`: PD-001 대표/상세 이미지, PD-005 모델 착용 정보, P-007 룩북 탐색 요구사항 확인
+- `docs/shopping-mall-planning.md`: 상품과 착장 중심의 컨템포러리 브랜드 톤 확인
+- `docs/customer-personas.md`: 김도현/박준서/이태오/최민재의 코디, 신뢰, 룩북, 사이즈 판단 관점 확인
+- `docs/information-architecture.md`: 상품 상세와 룩북 핵심 데이터에 이미지가 포함됨을 확인
+- `docs/user-scenarios.md`: S-001, S-004, S-005 구매/사이즈/룩북 흐름 확인
+- `menswear_demo_assets/docs/image_generation_prompts.json`: `top_07`~`top_10` 프롬프트 확인
+- `menswear_demo_assets/tops/top_07`~`top_10` `metadata.json`: 저장 경로 확인
+
+### 현재 계획
+
+- exact prompt text를 변경하지 않고 built-in image generation 도구를 사용한다.
+- 각 생성 결과는 로고, 브랜드 마크, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼이 보이면 실패로 처리하고 최대 3회 재생성한다.
+- placeholder 이미지는 만들지 않는다.
+
+### 남은 작업
+
+- 12개 PNG 생성
+- 각 이미지 육안 검사 및 필요 시 재생성
+- 파일 존재/형식 검증
+
+## 2026-07-02 - 남성 여름 상품 데모 에셋 패키지 생성
+
+### 작업 목표
+
+40개 fictional summer menswear 제품(상의 20개, 하의 20개)에 대한 문서, 메타데이터, 이미지 프롬프트, 제품 폴더, 일부 생성 이미지, zip 패키지를 생성했다.
+
+### 확인/적용한 요구사항
+
+- 실제 브랜드명, 로고, 캠페인, 제품, 패턴, 상표를 복사하지 않는 fictional brand 기준 적용
+- 이미지 프롬프트에 real brand reference를 넣지 않음
+- 모든 이미지 프롬프트에 로고, 텍스트, 태그, 넥라벨, 워터마크, 타이포그래피, 그래픽 심볼 금지 규칙 반영
+- 전체 구조는 `menswear_demo_assets/` 기준으로 생성
+
+### 변경 사항
+
+- `scripts/generate_menswear_demo_assets.py` 생성
+- `scripts/copy_latest_generated_image.py` 생성
+- `scripts/write_menswear_generation_status.py` 생성
+- `menswear_demo_assets/` 폴더 구조 생성
+- `docs/brand_direction.md`, `docs/product_catalog.md`, `docs/products.json`, `docs/image_generation_prompts.json` 생성
+- 40개 제품별 `metadata.json` 생성
+- `manifest.json`, `README.md` 생성
+- `TODO_GENERATE_IMAGES.md`, `image_generation_failures.json` 생성
+- `menswear_demo_assets.zip` 생성
+
+### 이미지 생성 결과
+
+- 예상 이미지 수: 120
+- 실제 생성 및 패키지에 복사된 이미지 수: 6
+- 누락 이미지 수: 114
+- 생성 완료 제품: `top_01` 3장, `top_02` 3장
+
+### 제한 사항
+
+- built-in 이미지 생성 도구는 사용 가능했으나 한 번에 하나의 프롬프트만 처리하고 기본 generated-images 디렉터리에 저장된다.
+- 대량 batch CLI는 존재하지만 `OPENAI_API_KEY`가 현재 환경에 없어 사용할 수 없었다.
+- 누락 이미지에 대해 가짜 placeholder PNG는 만들지 않았다.
+- 누락 경로와 재생성 지침은 `menswear_demo_assets/TODO_GENERATE_IMAGES.md`와 `menswear_demo_assets/image_generation_failures.json`에 기록했다.
+
+### 검증 결과
+
+- `menswear_demo_assets/` 존재 확인
+- `tops` 20개 폴더 확인
+- `bottoms` 20개 폴더 확인
+- `metadata.json` 40개 확인
+- 필수 docs 파일 확인
+- `manifest.json`, `README.md`, `menswear_demo_assets.zip` 확인
+- 이미지 프롬프트에 strict visual rule 포함 확인
+- 벤치마크 real brand reference 문자열이 이미지 프롬프트에 포함되지 않음을 확인
+
+### 남은 작업
+
+- `TODO_GENERATE_IMAGES.md`의 missing image path 114개 생성
+- 생성 이미지마다 visible logo/text/label/tag/watermark 여부 검사
+- 실패 이미지 재생성 후 zip 재생성
+
+## 2026-07-02 - 고객 페르소나 및 서브 에이전트 구축
+
+### 작업 목표
+
+고객 정의를 더 구체화하기 위해 최소 3명 이상의 이름 있는 페르소나를 만들고, 디자인/개발/QA/런칭 과정에서 피드백을 줄 수 있는 페르소나 서브 에이전트 정의를 구축했다.
+
+### 확인한 문서
+
+- `AGENTS.md`
+- `plan.md`
+- `docs/shopping-mall-pyd.md`
+- `docs/shopping-mall-planning.md`
+- `docs/information-architecture.md`
+- `docs/user-scenarios.md`
+- `docs/design-instruct.md`
+
+### 변경 사항
+
+- 고객 페르소나 문서 `docs/customer-personas.md`를 추가했다.
+- 김도현, 박준서, 이태오, 최민재 4명의 고객 페르소나를 정의했다.
+- `.agents/README.md`와 4개 페르소나 서브 에이전트 정의 파일을 추가했다.
+- PYD와 기획서에 고객 페르소나 문서 링크와 핵심 페르소나 요약을 추가했다.
+- 유저 시나리오에 시나리오-페르소나 매핑을 추가했다.
+- AGENTS에 페르소나 서브 에이전트 사용 규칙과 피드백 기록 규칙을 추가했다.
+- plan에 페르소나 피드백 게이트와 관련 문서 확인 항목을 추가했다.
+
+### 수정한 파일
+
+- `docs/customer-personas.md`
+- `.agents/README.md`
+- `.agents/persona-kim-dohyun.md`
+- `.agents/persona-park-junseo.md`
+- `.agents/persona-lee-taeo.md`
+- `.agents/persona-choi-minjae.md`
+- `docs/shopping-mall-pyd.md`
+- `docs/shopping-mall-planning.md`
+- `docs/information-architecture.md`
+- `docs/user-scenarios.md`
+- `AGENTS.md`
+- `plan.md`
+- `process.md`
+
+### 검증 결과
+
+- 문서와 서브 에이전트 정의 파일 생성 및 링크 연결을 완료했다.
+- 아직 앱 구현은 시작하지 않았으므로 빌드/테스트는 실행하지 않았다.
+
+### 남은 작업
+
+- 실제 디자인 산출물 또는 구현 화면이 생기면 페르소나 서브 에이전트 피드백 실행
+- 페르소나별 릴리즈 차단 이슈를 `process.md`와 `plan.md`에 반영
+
+## 2026-07-02 - 문서 일관성 점검 및 보완
+
+### 작업 목표
+
+`AGENTS.md`, `plan.md`, `docs/` 전체를 교차 검토해 문서 간 불일치와 누락을 찾아 보완했다. 아직 코드 구현은 시작하지 않았다.
+
+### 확인한 문서
+
+- `AGENTS.md`
+- `plan.md`
+- `docs/shopping-mall-pyd.md`
+- `docs/shopping-mall-planning.md`
+- `docs/information-architecture.md`
+- `docs/user-scenarios.md`
+- `docs/design-instruct.md`
+
+### 발견한 문제
+
+- IA의 쿠폰 관리 권한이 "마케팅관리자 이상"으로 표기되어 있었으나, PYD의 관리자 역할 정의(A-001)와 IA 자체의 권한 매트릭스 어디에도 `마케팅관리자`가 없어 3개 문서가 서로 모순되었다.
+- SizeSpec 데이터 모델이 의류 실측 항목만 가지고 있어, CAT-001에 포함된 신발/가방 카테고리의 사이즈표를 표현할 수 없었다.
+- Payment, Shipment, Coupon, UserCoupon, RestockRequest, ExchangeReturnRequest, Review, Inquiry, Lookbook 등 9개 엔티티의 status(또는 유사) 필드 값이 어디에도 정의되어 있지 않아 구현자가 임의로 정해야 하는 상태였다.
+- Coupon 엔티티에 쿠폰 적용 대상(카테고리/상품 범위) 필드가 없어 M-002(시즌 드롭 쿠폰) 요구사항을 데이터 모델로 표현할 수 없었다.
+- Address 엔티티에 제주/도서산간 배송비 판정에 쓸 지역 필드가 없어 D-002 요구사항을 만족할 수 없었다.
+- 관리자 2단계 인증/IP 제한이 "가능하면"이라는 연성 표현으로만 존재하고 요구사항 ID와 데이터 모델이 없었다.
+- `docs/design-instruct.md`가 git diff 패치 포맷(`--- `, `+++ `, `@@`, 줄 앞 `+`)으로 저장되어 있었고, `AGENTS.md`의 문서 목록에서도 빠져 있었다.
+
+### 변경 사항
+
+- PYD에 A-015(관리자 로그인 보안 강화) 요구사항을 추가했다.
+- PYD User 엔티티에 mfaEnabled, mfaSecretHash 필드를 추가하고, AdminIpAllowlist 엔티티(16.30)를 신규로 추가했다.
+- PYD Address 엔티티에 zoneCode 필드를 추가했다.
+- PYD Coupon 엔티티에 appliesToType, appliesToTargetId 필드를 추가했다.
+- PYD SizeSpec 엔티티에 categoryGroup과 신발/가방용 실측 필드(footLength, footWidth, bagWidth, bagHeight, bagDepth)를 추가하고, 17.4 사이즈 정보 정책에 카테고리별 필드 사용 기준을 명시했다.
+- PYD에 18.1(기타 핵심 상태값 정의) 절을 추가해 9개 엔티티의 상태값을 정의했다.
+- PYD 버전을 v2.1로 올리고 변경 이력 표를 추가했다.
+- IA의 쿠폰 관리 권한을 매트릭스와 일치하도록 "최고관리자"로 수정하고, 버전을 v1.1로 올리며 변경 이력 표를 추가했다.
+- `docs/design-instruct.md`의 diff 포맷을 제거하고 다른 문서와 동일한 제목/메타데이터 구조로 정리했다.
+- `AGENTS.md`에 "참고 문서" 절을 추가해 `docs/design-instruct.md`를 연결하고, 상태값은 PYD 18.1을 따르도록 구현 진행 원칙에 명시했다.
+- `plan.md`의 관련 요구사항 범위를 A-001~A-015로 갱신하고, 6.3 체크리스트에 관리자 2단계 인증/IP 허용목록 항목을 추가했다.
+
+### 수정한 파일
+
+- `docs/shopping-mall-pyd.md`
+- `docs/information-architecture.md`
+- `docs/design-instruct.md`
+- `AGENTS.md`
+- `plan.md`
+- `process.md`
+
+### 검증 결과
+
+- 문서 간 교차 참조(역할, 상태값, 엔티티 필드)를 다시 확인해 모순이 해소됐는지 점검했다.
+- 코드 구현은 아직 없으므로 빌드/테스트는 실행하지 않았다.
+
+### 남은 작업
+
+- 기술 스택, 브랜드명, 인증 방식(세션/JWT), PG사, 택배사 등 `plan.md` 9절 미정 사항 결정
+- 결정 후 실제 앱 구조 생성 및 구현 착수
+
+## 2026-07-02 - 인증/DB/프론트/백엔드 계획 보강
+
+### 작업 목표
+
+로그인, 로그아웃, 데이터베이스, 프론트엔드, 백엔드 요구사항이 `PYD`와 `plan.md`에 충분히 반영되어 있는지 전문가 관점으로 검토하고, 누락된 내용을 보완했다. 추가로 IA 리스트와 유저 시나리오 문서를 생성했다.
+
+### 확인한 문서
+
+- `docs/shopping-mall-pyd.md`
+- `docs/shopping-mall-planning.md`
+- `plan.md`
+- `AGENTS.md`
+
+### 검토 결과
+
+- 기존 PYD에는 로그인/로그아웃이 한 줄로만 정의되어 있어 세션, 토큰 갱신, 비밀번호 재설정, 로그아웃 무효화, 로그인 실패 보호가 부족했다.
+- 기존 데이터 모델에는 세션, 소셜 계정, 인증 토큰, 배송지, 결제, 배송, 쿠폰, 포인트 원장, 재고 원장, 관리자 감사 로그가 부족했다.
+- 기존 계획에는 프론트엔드와 백엔드 구현 범위가 분리되어 있지 않았고 API, DB 마이그레이션, 인증/권한, 트랜잭션 검증 계획이 부족했다.
+- IA와 유저 시나리오가 별도 문서로 없어 구현 라우팅과 QA 기준으로 바로 쓰기 어려웠다.
+
+### 변경 사항
+
+- PYD에 고객/인증 요구사항을 세분화했다.
+- PYD에 프론트엔드 요구사항, 백엔드/API 요구사항, 데이터베이스 요구사항을 추가했다.
+- PYD 핵심 데이터 모델을 세션, 인증 토큰, 소셜 계정, 결제, 배송, 쿠폰, 포인트, 재고 원장, 감사 로그까지 확장했다.
+- 기획서의 기술 방향과 개발 단계에 인증, DB, API, 트랜잭션 기준을 보강했다.
+- `plan.md`를 상세 구현 계획으로 재작성했다.
+- `docs/information-architecture.md`를 추가했다.
+- `docs/user-scenarios.md`를 추가했다.
+- `AGENTS.md` 기준 문서에 IA와 유저 시나리오를 추가했다.
+
+### 수정한 파일
+
+- `docs/shopping-mall-pyd.md`
+- `docs/shopping-mall-planning.md`
+- `docs/information-architecture.md`
+- `docs/user-scenarios.md`
+- `AGENTS.md`
+- `plan.md`
+- `process.md`
+
+### 검증 결과
+
+- 문서 보강 작업을 완료했다.
+- 아직 애플리케이션 구현은 시작하지 않았으므로 빌드/테스트는 실행하지 않았다.
+
+### 남은 작업
+
+- 기술 스택 확정
+- 실제 앱 구조 생성
+- DB 스키마 또는 ORM 모델 구현
+- 인증/상품/장바구니/주문 API 구현
+- 고객/관리자 화면 구현
+
+## 2026-07-02
+
+### 작업 목표
+
+남성 캐트릿 패션 쇼핑몰 구현 전 기준 문서를 정리하고, 이후 구현자가 `plan.md`를 따라 작업하며 `process.md`를 갱신하도록 저장소 운영 규칙을 추가했다.
+
+### 확인한 문서
+
+- `docs/shopping-mall-pyd.md`
+- `docs/shopping-mall-planning.md`
+
+### 변경 사항
+
+- 범용 쇼핑몰 PYD를 남성 캐트릿 패션 쇼핑몰 전용 PYD로 구체화했다.
+- 범용 쇼핑몰 기획서를 남성 캐트릿 패션 쇼핑몰 전용 기획서로 구체화했다.
+- 구현 전 `plan.md`와 `process.md`를 만들고 갱신하도록 `AGENTS.md`를 추가했다.
+- 초기 구현 계획 초안으로 `plan.md`를 추가했다.
+- 현재 진행 기록 파일로 `process.md`를 추가했다.
+
+### 수정한 파일
+
+- `docs/shopping-mall-pyd.md`
+- `docs/shopping-mall-planning.md`
+- `AGENTS.md`
+- `plan.md`
+- `process.md`
+
+### 결정 사항
+
+- `캐트릿`은 캐주얼과 스트릿 무드를 결합한 남성 패션 콘셉트로 정의했다.
+- 제품 차별화 요소는 실측 사이즈표, 모델 착용 정보, 룩북, 코디 세트, 재입고 알림으로 잡았다.
+- 구현 작업자는 코드 수정 전 반드시 `plan.md`를 갱신하고, 작업 중 `process.md`를 계속 갱신하도록 규칙화했다.
+
+### 검증 결과
+
+- 문서 파일 생성 및 갱신 작업을 완료했다.
+- 아직 애플리케이션 구현은 시작하지 않았으므로 빌드/테스트는 실행하지 않았다.
+
+### 남은 작업
+
+- 실제 기술 스택 확정
+- 브랜드명 확정
+- 초기 화면 와이어프레임 또는 UI 구현 시작
+- 초기 상품 데이터 설계
