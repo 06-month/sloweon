@@ -73,7 +73,6 @@ export function CheckoutForm({
 
       const method = formData.get("method") as string;
       let tossMethod = "CARD";
-      if (method === "EASY_PAY") tossMethod = "EASY_PAY";
       if (method === "BANK_TRANSFER") tossMethod = "TRANSFER";
 
       const customerKey = res.customerEmail
