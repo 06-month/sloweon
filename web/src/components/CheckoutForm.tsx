@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
-import { placeOrder, type OrderFormState } from "@/app/actions/order";
+import { useMemo, useState } from "react";
+import { prepareOrder } from "@/app/actions/order";
 import { won } from "@/lib/format";
 
 const METHODS = [
@@ -46,11 +46,63 @@ export function CheckoutForm({
   pointBalance?: number;
   addresses?: AddressOption[];
 }) {
-  const [state, formAction, pending] = useActionState<OrderFormState, FormData>(placeOrder, null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0];
   const [address, setAddress] = useState<AddressOption | null>(defaultAddress ?? null);
   const [couponId, setCouponId] = useState("");
   const [points, setPoints] = useState(0);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError(null);
+    setPending(true);
+
+    const formData = new FormData(e.currentTarget);
+    const res = await prepareOrder(formData);
+    if (res.error) {
+      setError(res.error);
+      setPending(false);
+      return;
+    }
+
+    try {
+      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY || "test_ck_qbg2GWZDE3w6NqaPvzoqV5OWd2xe";
+      const { loadTossPayments } = await import("@tosspayments/tosspayments-sdk");
+      const tossPayments = await loadTossPayments(clientKey);
+
+      const method = formData.get("method") as string;
+      let tossMethod = "CARD";
+      if (method === "EASY_PAY") tossMethod = "EASY_PAY";
+      if (method === "BANK_TRANSFER") tossMethod = "TRANSFER";
+
+      const customerKey = res.customerEmail
+        ? res.customerEmail.replace(/[^a-zA-Z0-9_-]/g, "")
+        : "GUEST_" + Math.random().toString(36).substring(2);
+
+      const payment = tossPayments.payment({
+        customerKey: customerKey || "GUEST",
+      });
+
+      await payment.requestPayment({
+        method: tossMethod as any,
+        amount: {
+          currency: "KRW",
+          value: res.finalAmount!,
+        },
+        orderId: res.orderNumber!,
+        orderName: res.productName!,
+        successUrl: window.location.origin + "/api/payment/toss/success",
+        failUrl: window.location.origin + "/api/payment/toss/fail",
+        customerEmail: res.customerEmail || undefined,
+        customerName: res.customerName || undefined,
+      });
+    } catch (err: any) {
+      console.error("Toss Payments error:", err);
+      setError(err?.message || "결제 진행 중 오류가 발생했습니다. 다시 시도해 주세요.");
+      setPending(false);
+    }
+  };
 
   const discount = useMemo(() => {
     const coupon = coupons.find((c) => c.id === couponId);
@@ -68,7 +120,7 @@ export function CheckoutForm({
     "w-full border hairline bg-surface px-3 py-3 text-sm placeholder:text-ink-faint focus:border-line-strong focus:outline-none";
 
   return (
-    <form action={formAction} className="space-y-8">
+    <form onSubmit={handleSubmit} className="space-y-8">
       <section>
         <p className="label-caps mb-3">배송지</p>
         {addresses.length > 0 && (
@@ -210,7 +262,7 @@ export function CheckoutForm({
         </span>
       </label>
 
-      {state?.error && <p className="text-sm text-accent">{state.error}</p>}
+      {error && <p className="text-sm text-accent">{error}</p>}
 
       <button
         type="submit"

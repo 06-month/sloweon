@@ -287,3 +287,153 @@ export async function cancelOrder(_prev: CancelState, formData: FormData): Promi
   revalidatePath(`/mypage/orders/${orderId}`);
   return { ok: true };
 }
+
+export type PrepareOrderResult = {
+  error?: string;
+  orderNumber?: string;
+  finalAmount?: number;
+  productName?: string;
+  customerName?: string;
+  customerEmail?: string;
+};
+
+/**
+ * PG사 결제창 진입을 위한 임시 가주문 생성 (O-003~O-006, BE-012)
+ * 주문 정보 검증 후 가주문(PENDING) 상태로 주문을 선생성하여 반환합니다.
+ */
+export async function prepareOrder(formData: FormData): Promise<PrepareOrderResult> {
+  const receiverName = String(formData.get("receiverName") ?? "").trim();
+  const receiverPhone = String(formData.get("receiverPhone") ?? "").trim();
+  const zipCode = String(formData.get("zipCode") ?? "").trim();
+  const address1 = String(formData.get("address1") ?? "").trim();
+  const address2 = String(formData.get("address2") ?? "").trim();
+  const deliveryMemo = String(formData.get("deliveryMemo") ?? "").trim();
+  const method = String(formData.get("method") ?? "CARD");
+  const agreed = formData.get("agree") === "on";
+  const userCouponId = String(formData.get("userCouponId") ?? "") || null;
+  const usePoints = Math.max(0, Math.floor(Number(formData.get("usePoints") ?? 0) || 0));
+
+  if (!receiverName) return { error: "받는 분 이름을 입력해주세요." };
+  if (!/^01[0-9]-?\d{3,4}-?\d{4}$/.test(receiverPhone)) return { error: "올바른 휴대폰 번호를 입력해주세요." };
+  if (!zipCode || !address1) return { error: "배송지 주소를 입력해주세요." };
+  if (!agreed) return { error: "주문 내용 확인 및 결제 진행에 동의해주세요." };
+
+  const user = await getCurrentUser();
+  const cartItems = await getCartItems();
+  if (cartItems.length === 0) return { error: "장바구니가 비어 있습니다." };
+
+  // 재고 사전 검증 (가주문 생성 전)
+  for (const item of cartItems) {
+    if (item.variant.stock < item.quantity) {
+      return { error: `${item.variant.product.koreanName} (${item.variant.size}) 재고가 부족합니다.` };
+    }
+  }
+
+  // 서버 기준 금액 계산 (O-005)
+  const totalProductAmount = cartItems.reduce(
+    (sum, item) => sum + effectivePrice(item.variant.product) * item.quantity,
+    0,
+  );
+
+  // 쿠폰 검증
+  let discountAmount = 0;
+  if (userCouponId) {
+    if (!user) return { error: "쿠폰은 로그인 후 사용할 수 있습니다." };
+    const userCoupon = await prisma.userCoupon.findFirst({
+      where: { id: userCouponId, userId: user.id, status: "ISSUED" },
+      include: { coupon: true },
+    });
+    if (!userCoupon) return { error: "사용할 수 없는 쿠폰입니다." };
+    const { coupon } = userCoupon;
+    if (coupon.status !== "ACTIVE" || (coupon.endsAt && coupon.endsAt < new Date()))
+      return { error: "기간이 지난 쿠폰입니다." };
+    if (totalProductAmount < coupon.minOrderAmount)
+      return { error: `이 쿠폰은 ${coupon.minOrderAmount.toLocaleString()}원 이상 주문에 사용할 수 있습니다.` };
+    discountAmount =
+      coupon.discountType === "RATE"
+        ? Math.floor((totalProductAmount * coupon.discountValue) / 100)
+        : Math.min(coupon.discountValue, totalProductAmount);
+  }
+
+  // 포인트 검증
+  let pointUsedAmount = 0;
+  if (usePoints > 0) {
+    if (!user) return { error: "포인트는 로그인 후 사용할 수 있습니다." };
+    const balance = await getPointBalance(user.id);
+    if (usePoints > balance) return { error: `보유 포인트(${balance.toLocaleString()}P)를 초과했습니다.` };
+    pointUsedAmount = Math.min(usePoints, totalProductAmount - discountAmount);
+  }
+
+  const shippingFee = calcShippingFee(totalProductAmount);
+  const finalAmount = totalProductAmount - discountAmount - pointUsedAmount + shippingFee;
+
+  const number = newOrderNumber();
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const order = await tx.order.create({
+        data: {
+          orderNumber: number,
+          userId: user?.id ?? null,
+          status: "PENDING",
+          totalProductAmount,
+          discountAmount,
+          pointUsedAmount,
+          shippingFee,
+          finalAmount,
+          receiverName,
+          receiverPhone,
+          zipCode,
+          address1,
+          address2: address2 || null,
+          deliveryMemo: deliveryMemo || null,
+          items: {
+            create: cartItems.map((item) => ({
+              productId: item.variant.productId,
+              variantId: item.variantId,
+              productNameSnapshot: item.variant.product.koreanName,
+              colorSnapshot: item.variant.colorName,
+              sizeSnapshot: item.variant.size,
+              quantity: item.quantity,
+              unitPrice: effectivePrice(item.variant.product),
+              totalPrice: effectivePrice(item.variant.product) * item.quantity,
+            })),
+          },
+          payment: {
+            create: {
+              method,
+              amount: finalAmount,
+              status: "READY",
+              provider: "TOSS_PAYMENTS",
+              paymentKey: `ready_${number}_${randomBytes(4).toString("hex")}`,
+            },
+          },
+          statusHistories: {
+            create: { previousStatus: null, nextStatus: "PENDING", changedBy: user?.id ?? "GUEST" },
+          },
+        },
+      });
+
+      if (userCouponId && user) {
+        await tx.userCoupon.update({
+          where: { id: userCouponId },
+          data: { orderId: order.id },
+        });
+      }
+    });
+
+    const firstItemName = cartItems[0].variant.product.koreanName;
+    const productName = cartItems.length > 1 ? `${firstItemName} 외 ${cartItems.length - 1}건` : firstItemName;
+
+    return {
+      orderNumber: number,
+      finalAmount,
+      productName,
+      customerName: receiverName,
+      customerEmail: user?.email ?? "",
+    };
+  } catch (e) {
+    console.error("prepareOrder error:", e);
+    return { error: "가주문 생성 중 오류가 발생했습니다. 다시 시도해 주세요." };
+  }
+}
