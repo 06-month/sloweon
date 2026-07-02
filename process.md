@@ -1,5 +1,44 @@
 # 구현 진행 기록
 
+## 2026-07-02 - 토스페이먼츠(Toss Payments) 결제 연동 구현
+
+### 작업 목표
+
+주문서 작성 후 모의 결제가 아닌 실제 토스페이먼츠 PG사 결제창을 통해 카드/간편결제/계좌이체 프로세스를 밟고, 결제 승인 결과를 데이터베이스(재고 차감, 쿠폰/포인트 소진)와 트랜잭션으로 원자적 결합하는 정석 PG 연동을 구현한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- 토스페이먼츠 SDK v2 개발자 연동 가이드
+- Prisma 트랜잭션 및 PgBouncer 연동 요령
+- 관련 요구사항 ID: O-003, O-004, O-005, O-006, O-007, BE-006, BE-007, DB-008
+
+### 구현한 변경 사항
+
+- **토스페이먼츠 SDK 탑재 (`web/src/components/CheckoutForm.tsx`)**:
+  - `@tosspayments/tosspayments-sdk` 공식 라이브러리를 동적 로드하고 사용자가 지정한 결제 수단(카드, 간편결제, 계좌이체)에 맞게 결제를 요청하도록 변경.
+  - 가주문 데이터 생성이 확인되면, 성공/실패 콜백 URL을 지정해 카드사 팝업 결제창을 기동하는 로직 적용.
+- **임시 가주문 생성 기능 (`web/src/app/actions/order.ts` 내 `prepareOrder`)**:
+  - 결제창 기동 전, 결제 상태를 `"PENDING"`으로, 결제 테이블을 `"READY"` 상태로 두어 임시 주문 번호를 선발행하는 Server Action 추가.
+  - 상품가 재계산, 쿠폰 및 포인트 사전 한도 검증 실시.
+- **결제 승인 라우터 핸들러 (`web/src/app/api/payment/toss/success/route.ts`)**:
+  - 토스페이먼츠 `/v1/payments/confirm` API를 호출해 결제를 공식 확정.
+  - 승인이 성공하면 하나의 DB 트랜잭션 내에서 **실시간 재고 검증 및 차감**, **쿠폰/포인트 소진(상태 USED 전환 및 원장 기록)**, **주문 상태 PAID 전환 및 결제 기록 확정**, **장바구니 비우기** 작업을 원자적으로 처리.
+  - DB 트랜잭션 실패 시 사용자를 위해 토스페이먼츠 **Cancel API**를 자동 역추적 호출하여 자동 환불 처리(데이터 일관성 보장).
+- **결제 실패 라우터 핸들러 및 화면 (`web/src/app/api/payment/toss/fail/route.ts`, `/checkout/fail/page.tsx`)**:
+  - 결제 취소 또는 실패 시 가주문을 `CANCELLED` 처리하고 할당된 쿠폰을 다시 사용할 수 있도록 복원 후 사용자에게 에러 코드와 한글 설명 제시.
+
+### 실행한 명령어와 결과 요약
+
+- `npm install @tosspayments/tosspayments-sdk --prefix web`: Toss Payments 클라이언트 SDK 설치 완료.
+- `npm run typecheck --prefix web`: 빌드 타입 오류 검사 통과.
+- `npm run build --prefix web`: 빌드 완료 및 3개 신규 라우터(성공/실패 API 및 실패 페이지) 정상 동적 동봉.
+- `git push origin main`: 깃허브 최신 원격 반영 및 Vercel 자동 빌드 배포 연동 가동.
+
+### 테스트/검증 결과
+
+- 로컬/버셀 Next.js 컴파일 오류 0건.
+- 로컬 프로세스 3777 포트 재기동 완료.
+
 ## 2026-07-02 - Vercel 배포를 위한 자산 구조 및 DB Provider 전환
 
 ### 작업 목표

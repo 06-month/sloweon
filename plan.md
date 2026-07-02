@@ -96,9 +96,30 @@
   - [x] `web/src/lib/assets.ts` 내의 로컬 경로를 Next.js public 하위 참조로 수정
   - [x] `web/prisma/schema.prisma` 내 DB provider를 `postgresql`로 전환
   - [x] Prisma Client 로컬 재생성 (`npx prisma generate` in web) 및 빌드 검증
-  - [ ] 작업 내용 Git 스테이징, 커밋 및 Github origin에 푸시
+  - [x] 작업 내용 Git 스테이징, 커밋 및 Github origin에 푸시
 - 검증 방법: 빌드 및 타입체크 성공 여부 검사.
 - 리스크와 대응: 로컬 개발 환경에서 PostgreSQL 접속 정보(DATABASE_URL)가 필요해질 수 있으므로, 사용 방법 가이드를 유저에게 제공하여 원활한 로컬 시딩 및 연동을 유도한다.
+
+### 1.6 토스페이먼츠 결제 연동 (2026-07-02 착수)
+
+- 작업 목표: 주문서 결제 수단 선택 시 토스페이먼츠 PG사 결제창을 실제로 기동하고, 승인 성공 및 실패 시의 비즈니스 로직(재고 차감, 주문 확정, 쿠폰/포인트 소진)을 트랜잭션으로 안전하게 연동한다.
+- 구현 범위:
+  - `CheckoutForm` 클라이언트 폼 핸들러 개편: `@tosspayments/tosspayments-sdk`를 호출하여 결제 요청 연동.
+  - 가주문 생성 로직(`prepareOrder` Server Action) 추가: 결제 요청 직전 임시 가주문(`status: PENDING`, `Payment status: READY`)을 안전하게 생성.
+  - 결제 승인 콜백 API 핸들러 (`/api/payment/toss/success`) 개발: 토스페이먼츠 승인 요청 후 데이터베이스 트랜잭션(재고 차감, 쿠폰/포인트 사용, 상태 확정) 처리 및 예외 시 자동 취소(취소 API 호출) 구현.
+  - 결제 실패 콜백 API 핸들러 (`/api/payment/toss/fail`) 및 실패 안내 화면 개발.
+- 구현 단계별 체크리스트:
+  - [x] 토스페이먼츠 클라이언트 패키지 설치 (`@tosspayments/tosspayments-sdk`)
+  - [x] `web/src/app/actions/order.ts` 내 `prepareOrder` 액션 구현
+  - [x] `web/src/components/CheckoutForm.tsx`에 토스페이먼츠 SDK 요청 로직 탑재 및 onSubmit 전환
+  - [x] `/api/payment/toss/success` 성공 라우트 핸들러 개발 (승인 및 DB 트랜잭션 원자적 처리 및 자동 취소 롤백 보장)
+  - [x] `/api/payment/toss/fail` 실패 라우트 핸들러 개발
+  - [x] `/checkout/fail` 결제 실패 UI 페이지 개발
+  - [x] 타입 검사 및 Next.js optimized 빌드 성공 확인
+  - [x] 변경 사항 Git 스테이징, 커밋 및 Github origin 푸시
+- 검증 방법: 로컬/버셀 환경 실결제 창 기동 검사 및 테스트 결제 후 DB 데이터 적재와 재고 감소 확인.
+- 리스크와 대응: 결제 처리 중 꼬임(재고는 차감되었는데 PG 승인은 실패함 등)을 막기 위해, DB 반영 전에 PG 승인을 먼저 완료하고, DB 반영 실패 시 PG 자동 취소 API를 트리거하는 이중 검증 롤백 전략을 준수한다.
+
 
 ## 2. 기준 문서
 
