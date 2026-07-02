@@ -7,8 +7,8 @@ import path from "node:path";
  * - 메인 페이지 비주얼: overview-image/ (경로 앞에 "overview/" 프리픽스로 접근)
  * 파일을 복사하지 않고 원본 디렉토리를 직접 서빙한다.
  */
-export const ASSETS_ROOT = path.resolve(process.cwd(), "../menswear_demo_assets");
-export const OVERVIEW_ROOT = path.resolve(process.cwd(), "../overview-image");
+export const ASSETS_ROOT = path.resolve(process.cwd(), "public/menswear_demo_assets");
+export const OVERVIEW_ROOT = path.resolve(process.cwd(), "public/overview-image");
 
 const OVERVIEW_PREFIX = "overview/";
 

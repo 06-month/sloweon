@@ -1,5 +1,34 @@
 # 구현 진행 기록
 
+## 2026-07-02 - Vercel 배포를 위한 자산 구조 및 DB Provider 전환
+
+### 작업 목표
+
+버셀(Vercel) 서버리스 환경 배포 시 발생하는 이미지 엑박(자산 누락) 문제와 SQLite의 쓰기 불가/데이터 휘발성 제약을 해결하기 위해, 이미지 자산을 public 하위로 재배치하고 DB provider를 PostgreSQL로 전환한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- Next.js의 정적 자산 서빙 가이드 (public 폴더 규칙)
+- Prisma 다중 데이터베이스 어댑터 설정 가이드
+
+### 구현한 변경 사항
+
+- **이미지 자산 정적 폴더화**: 최상위에 있던 `menswear_demo_assets/` 및 `overview-image/` 폴더를 `web/public/` 하위로 일괄 복사하여 빌드 시 버셀 서버리스 인스턴스에 번들되도록 함.
+- **이미지 서빙 경로 수정 (`web/src/lib/assets.ts`)**: `fs.statSync` 및 `fs.promises.readFile`이 버셀 상에서 자산을 읽을 수 있도록 `ASSETS_ROOT`와 `OVERVIEW_ROOT`를 `web/public` 폴더 아래를 참조하도록 경로 변경.
+- **Prisma DB Provider 전환 (`web/prisma/schema.prisma`)**: database provider를 `sqlite`에서 `postgresql`로 수정.
+- **Prisma Client 재생성 및 검증**: `web` 디렉토리 내에서 로컬 Prisma v6 Client를 빌드하여 재생성 완료.
+
+### 실행한 명령어와 결과 요약
+
+- `mkdir -p web/public && cp -R menswear_demo_assets web/public/ && cp -R overview-image web/public/`: 파일 이동 성공
+- `npx prisma generate` (in web): v6.19.3 클라이언트 빌드 및 생성 성공
+- `npm run typecheck --prefix web`: 컴파일 무결성 검사 성공 (에러 0개)
+- `npm run build --prefix web`: Next.js 프로덕션 최종 빌드 빌드 완료 및 static/dynamic 라우트 100% 최적화 성공
+
+### 테스트/검증 결과
+
+- 모든 페이지가 정상적으로 빌드 완료되었으며, 정적 이미지 로딩 로직과 DB client 접근 레이어에 아무 컴파일 오류가 없음.
+
 ## 2026-07-02 - 백엔드 확장 2차 (구매 마무리 세트 + 리뷰 + 교환/반품 + 쿠폰/포인트)
 
 ### 작업 목표

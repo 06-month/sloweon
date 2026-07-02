@@ -84,6 +84,22 @@
 - 검증 방법: 로컬 빌드 통과 여부 및 UI 레이아웃 깨짐 검사.
 - 리스크와 대응: UI 텍스트만 정밀 수정하되, 로직/폼 제출 관련 `name` 속성이나 `value`가 훼손되지 않도록 주의한다.
 
+### 1.5 Vercel 배포를 위한 자산 구조 및 DB Provider 전환 (2026-07-02 착수)
+
+- 작업 목표: 버셀(Vercel) 서버리스 배포를 위해 이미지 파일 서빙 문제를 해결하고 데이터베이스를 SQLite에서 PostgreSQL로 설정 전환한다.
+- 구현 범위:
+  - 이미지 자산 이동: `menswear_demo_assets` 및 `overview-image` 폴더를 `web/public/` 하위로 이동하여 빌드 번들 내에 적정 자산으로 동봉.
+  - 경로 설정 수정: `web/src/lib/assets.ts` 내의 ASSETS_ROOT 및 OVERVIEW_ROOT 경로를 `web/public` 폴더 아래를 지칭하도록 수정.
+  - DB Provider 전환: `web/prisma/schema.prisma` 내 database provider를 `sqlite`에서 `postgresql`로 수정.
+- 구현 단계별 체크리스트:
+  - [x] 최상위 폴더에 있는 이미지 자산 디렉토리 복사 (`mkdir -p web/public && cp -R menswear_demo_assets web/public/ && cp -R overview-image web/public/`)
+  - [x] `web/src/lib/assets.ts` 내의 로컬 경로를 Next.js public 하위 참조로 수정
+  - [x] `web/prisma/schema.prisma` 내 DB provider를 `postgresql`로 전환
+  - [x] Prisma Client 로컬 재생성 (`npx prisma generate` in web) 및 빌드 검증
+  - [ ] 작업 내용 Git 스테이징, 커밋 및 Github origin에 푸시
+- 검증 방법: 빌드 및 타입체크 성공 여부 검사.
+- 리스크와 대응: 로컬 개발 환경에서 PostgreSQL 접속 정보(DATABASE_URL)가 필요해질 수 있으므로, 사용 방법 가이드를 유저에게 제공하여 원활한 로컬 시딩 및 연동을 유도한다.
+
 ## 2. 기준 문서
 
 - `docs/shopping-mall-pyd.md`

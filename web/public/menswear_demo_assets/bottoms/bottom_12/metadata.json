@@ -1,0 +1,20 @@
+{
+  "id": "bottom_12",
+  "category": "bottom",
+  "name": "Off-White Cropped Linen Trousers",
+  "korean_name": "오프화이트 크롭 린넨 트라우저",
+  "color": "off-white",
+  "material": "linen blend",
+  "fit": "cropped wide fit",
+  "design_notes": "ankle-length crop, natural wrinkles, clean waistband",
+  "styling_notes": "pale khaki open-weave knit shirt",
+  "price_krw": 119000,
+  "detail_image_path": "bottoms/bottom_12/detail_image.png",
+  "worn_image_path": "bottoms/bottom_12/worn_image.png",
+  "lookbook_image_path": "bottoms/bottom_12/lookbook_image.png",
+  "lookbook_location": "minimal concrete corridor",
+  "short_description": "off-white linen blend item with cropped wide fit and ankle-length crop, natural wrinkles, clean waistband.",
+  "detail_image_prompt": "A clean e-commerce product detail image for a fictional Korean men's contemporary fashion brand, summer collection. Minimal domestic designer brand mood, relaxed silhouette, premium but understated. Studio white or very light grey background, soft diffused lighting, garment-first composition. Featured item: Off-White Cropped Linen Trousers, off-white, linen blend, cropped wide fit. Show realistic textile texture, stitching, seams, collar or waistband construction, hem, pocket, buttons, pleats, or natural fabric drape depending on the garment. The product should be clearly visible and commercially usable for an online shopping mall demo. No real brand references, no unrealistic clothing construction. Strict visual rule: Do not generate any visible logo, brand mark, clothing label, neck label, tag, watermark, printed text, embroidered text, typography, graphic symbol, fake brand name, or readable/unreadable text anywhere in the image. All garments must be completely plain and unbranded. If a garment would normally have a neck label, replace it with a blank seam or no visible label.",
+  "worn_image_prompt": "A clean e-commerce worn product image for a fictional Korean men's contemporary fashion brand, summer collection. Full-body young East Asian male model, neutral expression, natural standing pose, front 3/4 angle, studio white or very light grey background, soft diffused lighting. Featured item: Off-White Cropped Linen Trousers, off-white, linen blend, cropped wide fit. Style it with minimal matching garments from the same fictional summer collection: pale khaki open-weave knit shirt. Product must be clearly visible. Relaxed silhouette, premium but understated, realistic fabric texture, natural drape, accurate seams and proportions. No excessive styling, no distorted hands, no extra limbs, no unrealistic clothing construction. Strict visual rule: Do not generate any visible logo, brand mark, clothing label, neck label, tag, watermark, printed text, embroidered text, typography, graphic symbol, fake brand name, or readable/unreadable text anywhere in the image. All garments must be completely plain and unbranded. If a garment would normally have a neck label, replace it with a blank seam or no visible label.",
+  "lookbook_image_prompt": "A summer lookbook image for a fictional Korean men's contemporary domestic fashion brand. Quiet luxury, minimal Seoul menswear mood, relaxed tailoring, breathable summer fabrics, muted neutral color palette. Young East Asian male model, calm expression, natural editorial pose. Featured item: Off-White Cropped Linen Trousers, off-white, linen blend, cropped wide fit. Style it with: pale khaki open-weave knit shirt. Location: minimal concrete corridor. Soft natural light, refined composition, clean negative space, premium editorial e-commerce lookbook photography, realistic fabric movement. No real brand references, no distorted anatomy. Strict visual rule: Do not generate any visible logo, brand mark, clothing label, neck label, tag, watermark, printed text, embroidered text, typography, graphic symbol, fake brand name, or readable/unreadable text anywhere in the image. All garments must be completely plain and unbranded. If a garment would normally have a neck label, replace it with a blank seam or no visible label."
+}
