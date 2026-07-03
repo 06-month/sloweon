@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 2. 토스페이먼츠 승인 API 호출 준비 (키는 .env의 TOSS_SECRET_KEY)
-  const secretKey = process.env.TOSS_SECRET_KEY || "test_sk_Z61gEywqZ6qNzaPyjoqVrn1LzNGB";
+  const secretKey = process.env.TOSS_SECRET_KEY || "test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R";
   const basicAuth = Buffer.from(secretKey + ":").toString("base64");
 
   try {

@@ -67,7 +67,7 @@ export function CheckoutForm({
     }
 
     try {
-      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY || "test_ck_qbg2GWZDE3w6NqaPvzoqV5OWd2xe";
+      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY || "test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq";
       const { loadTossPayments } = await import("@tosspayments/tosspayments-sdk");
       const tossPayments = await loadTossPayments(clientKey);
 
