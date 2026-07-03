@@ -12,12 +12,15 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.8",
     "@prisma/client": "^6.10.0",
     "@tosspayments/tosspayments-sdk": "^2.7.1",
+    "ai": "^7.0.14",
     "bcryptjs": "^3.0.2",
     "next": "^15.3.4",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.10",

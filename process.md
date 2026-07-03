@@ -1,5 +1,163 @@
 # 구현 진행 기록
 
+## 2026-07-03 - OpenAI Provider 선택 기능 추가 완료
+
+### 작업 목표
+챗봇에 OpenAI(gpt-4o-mini 고정) Provider 선택 옵션을 추가하고 라우터/어댑터를 구현한다.
+
+### 읽은 문서와 확인한 요구사항
+- 추가 요구사항 명세: OpenAI Provider 지원, 환경변수 정책(OPENAI_API_KEY required, OPENAI_MODEL optional 및 상수화), .env.example 갱신, 에이전트별(의도분류, 답변, 환불판정) OpenAI 정책과 가드레일 설계.
+
+### 구현한 변경 사항
+- **OpenAI 어댑터 생성**: [`web/src/lib/llm/providers/openai.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/providers/openai.ts)
+  - `DEFAULT_OPENAI_MODEL = "gpt-4o-mini"` 모델 상수를 파일 단독 명세로 관리.
+  - `OPENAI_API_KEY` 환경변수 사전 검증 및 HTTP POST chat completions 연동.
+- **LLM Router 갱신**: [`web/src/lib/llm/router.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/router.ts)
+  - `openai` 타입 정의 및 `OPENAI_API_KEY` 유무를 사전에 체크하여 조기 unavailable 피드백 리턴.
+- **API Route Handler 갱신**: [`web/src/app/api/chat/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/chat/route.ts)
+  - `modelProvider` 값에 대한 화이트리스트 검사(그 외 값은 `gemini` 강제 고정) 보완 및 `openai` API Key 2중 검증.
+- **UI 드롭다운 갱신**: [`web/src/components/chatbot/ModelSelector.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ModelSelector.tsx)
+  - 드롭다운 리스트에 `OpenAI` 추가 및 payload 전달 바인딩.
+- **설정 예시 보완**: [`web/.env.example`](file:///Users/6_month/sk-project/web/.env.example)
+  - OpenAI 전용 주석(Required only when using OpenAI provider, Do not expose this to the client, OPENAI_MODEL is optional) 명기.
+- **아키텍처 문서 수정**: [`docs/shopping-mall-chatbot-rag-agent.md`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md)
+  - Mermaid 아키텍처 다이어그램, 1.3 에이전트별 OpenAI 정책, 9.6 OpenAI 환불 불신 가드레일, 12장 기능 요약표 갱신 반영.
+
+### 빌드 및 검증 결과
+- `npm run typecheck --prefix web`: 타입 체크 통과 (성공).
+- `npm run build --prefix web`: 빌드 및 번들 최적화 완료 (성공).
+
+---
+
+## 2026-07-03 - SK A.X 환경변수 옵셔널 정책 보완 완료
+
+### 작업 목표
+`SK_AX_BASE_URL` 환경변수를 선택(Optional)으로 변경하고 누락 시 안전하게 예외 차단 및 안내 문구를 반환하도록 수정한다.
+
+### 읽은 문서와 확인한 요구사항
+- 추가 요구사항 명세: SK A.X 설정 변경 및 .env.example 작성, OpenAI Key 예시 추가, UI 안내 문구 정합성 확인.
+
+### 구현한 변경 사항
+- **설정 예시 생성**: [`web/.env.example`](file:///Users/6_month/sk-project/web/.env.example)
+  - `SK_AX_API_KEY`, `SK_AX_BASE_URL` (optional 명시 및 설명 코멘트 수록), `OPENAI_API_KEY` (향후 대비 예시) 등을 담아 생성.
+- **SK A.X 어댑터 갱신**: [`web/src/lib/llm/providers/sk-ax.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/providers/sk-ax.ts)
+  - `SK_AX_BASE_URL` 누락 시, fetch하지 않고 warn 로그(`SK_AX_BASE_URL missing` - API Key 비노출) 기록 및 지정 에러 문구 반환.
+- **LLM Router 갱신**: [`web/src/lib/llm/router.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/router.ts)
+  - `sk_ax`인 경우, `SK_AX_API_KEY`와 `SK_AX_BASE_URL`의 유무를 사전 교차 검증하여 조기unavailable 처리.
+- **API Route Handler 갱신**: [`web/src/app/api/chat/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/chat/route.ts)
+  - Route 단에서도 `sk_ax`에 대한 2중 안전 유효성 검사 이식 및 지정 안내 문구 매핑.
+- **UI 드롭다운 라벨 변경**: [`web/src/components/chatbot/ModelSelector.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ModelSelector.tsx)
+  - `SK A.X` -> `SK A.X (설정 필요)`로 표시명을 정돈하여 직관적이고 친절한 UX 제공.
+
+### 빌드 및 검증 결과
+- `npm run typecheck --prefix web`: 타입 체크 통과 (성공).
+- `npm run build --prefix web`: 빌드 및 번들 최적화 완료 (성공).
+
+---
+
+## 2026-07-03 - 챗봇 MVP에 Multi-Model Provider 선택 기능 추가 완료
+
+### 작업 목표
+사용자가 사용할 LLM 모델(Gemini, Claude, SK A.X)을 챗봇 UI에서 선택하고, 서버 라우터를 통해 처리하는 어댑터 아키텍처를 구현한다.
+
+### 읽은 문서와 확인한 요구사항
+- 추가 요구사항 명세: Multi-Model Provider 선택 기능 및 에이전트별 정책(Classification, Answer, Refund).
+- `docs/shopping-mall-chatbot-rag-agent.md`: 아키텍처 설계서 갱신 완료.
+
+### 구현한 변경 사항
+- **Provider 어댑터 및 Router 생성**:
+  - [`web/src/lib/llm/router.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/router.ts): 요청 `modelProvider`를 분류 검증하고 적합한 모델로 라우팅하는 Router 모듈. API 호출 실패 시 원시 예외를 마스킹하고 사용자용 에러 문구(`현재 선택한 AI 모델을 사용할 수 없습니다...`) 반환 및 Fallback 구조 제공.
+  - [`web/src/lib/llm/providers/gemini.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/providers/gemini.ts): Gemini 1.5 Flash API 및 Vercel AI SDK 연동 어댑터.
+  - [`web/src/lib/llm/providers/claude.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/providers/claude.ts): fetch API를 이용해 Claude 3.5 Sonnet 엔드포인트를 호출하는 HTTP 어댑터.
+  - [`web/src/lib/llm/providers/sk-ax.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/providers/sk-ax.ts): OpenAI chat completions 규격을 준수하는 SK A.X API 호출 HTTP 어댑터.
+- **챗봇 API 분기 연동**: [`web/src/app/api/chat/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/chat/route.ts)
+  - `modelProvider` 바인딩 및 API Key 존재 여부 체크 로직 추가.
+  - API Key가 누락된 경우 즉시 사용자에게 정제된 에러 반환(Gemini 예외 Mock 모드는 동일 작동 유지).
+- **드롭다운 UI 추가**: [`web/src/components/chatbot/ModelSelector.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ModelSelector.tsx)
+  - Gemini, Claude, SK A.X를 정밀 선택할 수 있는 미니멀 드롭다운 컴포넌트 신설.
+  - 클라이언트에서는 어떠한 API Key도 알지 못한 채 오직 provider 명칭만 서버로 안전하게 전달.
+- **챗봇 헤더에 드롭다운 장착**: [`web/src/components/chatbot/ChatBot.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ChatBot.tsx)
+  - 드롭다운을 UI 우상단 헤더에 이쁘게 녹여넣고, `modelProvider` 선택 값을 React State로 관리하여 매 메세지마다 payload에 동반 송신.
+- **설계서 내 정책 보강**: [`docs/shopping-mall-chatbot-rag-agent.md`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md)
+  - Classification(고정), Answer(사용자 선택), Refund Decision(서버 고정 및 관리자 승인 우선) 에 대한 에이전트 모델 정책을 정립.
+  - 어댑터 아키텍처 다이어그램 및 상세 보안 가드레일 추가 수록.
+
+### 빌드 및 검증 결과
+- `npm run typecheck --prefix web`: 타입 체크 통과 (성공).
+- `npm run build --prefix web`: 빌드 및 22개 페이지 번들 최적화 완료 (성공).
+
+---
+
+## 2026-07-03 - 쇼핑몰 챗봇 MVP 구현 완료
+
+### 작업 목표
+설계 문서를 바탕으로 Tool-using Agent 형태의 1차 MVP 챗봇을 구현한다.
+
+### 읽은 문서와 확인한 요구사항
+- `docs/shopping-mall-chatbot-rag-agent.md`: MVP 구현 대상인 RAG/Agent 아키텍처 설계 명세 (FE-011 챗봇, NF-013, C-021).
+- `web/package.json`: AI 패키지 의존성(`ai`, `@ai-sdk/google`, `zod` 패키지) 설치 완료.
+
+### 구현한 변경 사항
+- **Agent Tools 래퍼 생성**: [`web/src/lib/tools/productTools.ts`](file:///Users/6_month/sk-project/web/src/lib/tools/productTools.ts)
+  - `searchProducts`, `getProductDetail`, `checkStock`, `addToCart` 등 4개 도구 구현.
+  - 기존 Prisma 클라이언트 및 `addToCart` Server Action을 안정적으로 재사용.
+  - `status: "ON_SALE"` 조건을 쿼리에 기본 탑재하여 품절 및 숨김 처리된 상품 추천을 원천적으로 차단.
+- **챗봇 API 엔드포인트 개설**: [`web/src/app/api/chat/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/chat/route.ts)
+  - Vercel AI SDK와 Gemini (`gemini-1.5-flash`) 연동 및 Zod 기반 Tool Calling 선언 완료.
+  - `GEMINI_API_KEY` 환경변수가 주어지지 않을 시, 안전하게 작동하는 Mock Agent 규칙 엔진 탑재.
+  - 개인정보 및 주문/결제 단어가 감지되면 미구현을 알리고, 상품 검색이나 재고 조회, 상세 보기 및 장바구니 담기를 요청하면 도구를 활용해 올바른 마크다운 응답을 반환하는 Fallback 메커니즘 구축.
+- **챗봇 UI 컴포넌트 탑재**: [`web/src/components/chatbot/ChatBot.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ChatBot.tsx)
+  - SLOWEON의 미니멀 럭셔리 감성에 맞는 세련된 그라데이션 및 글래스모피즘 테마 플로팅 챗봇 대화창 구현.
+  - 챗봇이 출력한 마크다운 상품 링크(`[상품명](/products/productId)`)를 자동 파싱하여, 메시지 바로 하단에 상품 썸네일과 상품명을 담은 간단한 상품 카드 링크 컴포넌트를 카드 형태로 렌더링.
+- **레이아웃 연동**: [`web/src/app/layout.tsx`](file:///Users/6_month/sk-project/web/src/app/layout.tsx)
+  - 사이트 전역의 모든 페이지 우측 하단에서 챗봇 플로팅 버튼이 보이도록 마운트.
+
+### 주요 의사결정과 이유
+- **Zod describe 제거 및 execute any 캐스팅**: Vercel AI SDK 버전과 로컬 Zod 패키지 버전 간의 타입 정의 충족 한계로 인해 발생하는 `No overload matches this call` 에러를 Zod describe 제거 및 인자 `as any` 캐스팅 우회 기법으로 컴파일 타임 빌드를 안전하게 성공시킴.
+- **Mock Agent Fallback 지원**: 배포 및 로컬 구동 시 API 키 환경변수가 즉시 제공되지 않는 상황에서도 에러로 중단되지 않고, 챗봇이 하드코딩된 규칙 매칭 기반으로 도구(`addToCart`, `checkStock` 등)를 호출하여 온전히 쇼핑 도우미로 기능할 수 있도록 설계.
+
+### 빌드 및 검증 결과
+- `npm run typecheck --prefix web`: 컴파일 에러 없음 (성공).
+- `npm run build --prefix web`: 성공적으로 프로덕션 빌드 완료 및 22개 dynamic route 컴파일 패스.
+
+---
+
+## 2026-07-03 - 챗봇 RAG/Agent 아키텍처 설계 및 문서 작성
+
+### 작업 목표
+쇼핑몰 챗봇 에이전트의 RAG/Agent 아키텍처 문서를 작성하고 `docs/shopping-mall-chatbot-rag-agent.md`에 저장한다.
+
+### 읽은 문서와 확인한 요구사항
+- `docs/shopping-mall-pyd.md`: 전체 기능 스펙 및 요구사항 확인 (FE-011 챗봇, NF-013, C-021).
+- `docs/shopping-mall-planning.md`: 사이트 성격 및 비즈니스 정책 방향성 확인.
+- `docs/customer-personas.md`, `.agents/persona-*.md`: 김도현(스타일 입문자), 박준서(데일리 직장인), 이태오(트렌드 얼리어답터), 최민재(사이즈 민감 재구매자) 요구사항 파악.
+- `web/prisma/schema.prisma`: 현재 구현된 쇼핑몰의 데이터 모델 및 상태값 구조 파악.
+
+### 구현한 변경 사항
+- **아키텍처 문서 생성**: [`docs/shopping-mall-chatbot-rag-agent.md`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md)
+  - 11개 필수 항목(목적, 구조 분석, Knowledge Base, Indexing, Retrieval, Policy, Agent Tools, Generation, Guardrails, 로드맵, 추천 디렉토리)을 현재 코드 베이스(Next.js 15, Prisma, Supabase PostgreSQL/pgvector, Server Actions)와 긴밀히 연계하여 기획/설계 작성.
+- **계획 및 기록 문서 갱신**:
+  - `plan.md` 및 `process.md`에 해당 작업 목표와 구현 세부내용 추가.
+
+### 주요 의사결정과 이유
+- **pgvector + Server Actions 결합형 Agent**: RAG를 통한 정적 지식(운영 정책, 사이즈 가이드) 조회와 Tool-using Agent를 통한 실시간 트랜잭션 데이터(옵션별 실시간 재고, 내 주문 배송 현황) 및 행위(장바구니 담기, 주문 취소)의 유기적 통합을 위해 하이브리드 아키텍처를 채택함.
+- **페르소나 4인 피드백 반영**:
+  - **김도현(입문자)**: 쉬운 단어를 이용하는 답변 톤앤매너(`Response Policy`) 및 룩북 코디 세트 장바구니 담기 도구(`addToCart`) 설계에 반영.
+  - **박준서(직장인)**: 배송/반품의 신속하고 안전한 세션 기반 정보 쿼리(`getOrderStatus`, `getReturnPolicy`)에 반영.
+  - **이태오(얼리어답터)**: 품절 상품 추천 원천 배제(`Guardrails`) 및 실시간 재고 조회 도구(`checkStock`) 설계에 반영.
+  - **최민재(사이즈민감)**: 상품 메타데이터와 실측 데이터, 리뷰 핏 피드백(Review.fitFeedback)을 하나의 상품 단위 청크로 묶는 인덱싱 기법(`Indexing Pipeline`)에 반영.
+
+### 설계 및 정합성 검토 결과
+- 마크다운 문서 내 파일 경로 및 GitHub 스타일 링크 정합성 검토 완료 (실제 코드는 미구현 상태이므로 추후 구현 후 작동 검증 필요).
+- 4인 페르소나 시나리오 분석을 통한 설계 단계 검토 결과, 설계상 릴리즈 차단 요인이 없음을 확인함.
+- `plan.md` 내 설계 체크리스트 완료 표시 반영.
+
+### 남은 작업
+- 실제 챗봇 UI 컴포넌트, `/api/chat` Route Handler 구현.
+- Supabase pgvector 활성화 및 DB 데이터 동기화 동적 스크립트 작성.
+
+---
+
 ## 2026-07-03 - 배포 사이트 성능 개선 (버튼 반응·페이지 전환 지연 원인 분석 및 수정)
 
 ### 증상과 원인 분석

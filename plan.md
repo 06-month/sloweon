@@ -8,6 +8,110 @@
 
 남성 컨템포러리 패션 쇼핑몰을 프론트엔드, 백엔드, 데이터베이스, 인증/권한, 관리자, 운영 관점에서 빠짐없이 구현하기 위한 계획을 정의한다. 구현자는 코드를 수정하기 전에 이 문서를 현재 작업 범위에 맞게 갱신하고, 진행 중 `process.md`를 계속 갱신한다.
 
+### 1.0 챗봇 RAG/Agent 아키텍처 설계 및 문서 작성 (2026-07-03)
+
+- 작업 목표: 쇼핑몰 챗봇 에이전트의 RAG/Agent 아키텍처 문서를 작성하고 `docs/shopping-mall-chatbot-rag-agent.md`에 저장한다.
+- 구현 범위:
+  - 현재 쇼핑몰 프로젝트 디렉토리 구조 및 코드 파악
+  - 이미 존재하는 기능과 부재한 기능 분석
+  - `docs/shopping-mall-chatbot-rag-agent.md` 파일 생성 (11가지 필수 항목 및 상세 가드레일 전략 포함)
+- 제외 범위: 실제 챗봇 UI 및 RAG/Agent 백엔드/데이터베이스 연동 코드의 완전한 구현 (이 문서는 기획/설계 문서이다)
+- 관련 요구사항 ID: FE-011 (챗봇 관련), NF-013, C-021.
+- 주요 화면 또는 모듈: RAG Knowledge Base, Vector DB, Retrieval/Generation Pipeline, LLM Tools, Policy Layer, Guardrails.
+- 데이터 모델 또는 상태 구조: 챗봇 대화 기록(Chat Session, Message) 및 챗봇 RAG 벡터 DB 스키마 제안.
+- 구현 단계별 체크리스트:
+  - [x] 현재 디렉토리 구조 및 관련 코드 위치 파악 (상품, 주문, 결제, 회원, API 등)
+  - [x] 존재하는 기능과 아직 없는 기능 비교 분석
+  - [x] 페르소나 4인(김도현, 박준서, 이태오, 최민재)의 요구사항을 반영한 챗봇 핵심 기능 설계
+  - [x] 11개 대항목이 포함된 `docs/shopping-mall-chatbot-rag-agent.md` 작성
+  - [x] 페르소나 에이전트 검토를 통한 피드백 반영
+- 검증 방법: 설계 단계에서 마크다운 문서 품질 검토, 11개 필수 기획 항목 수록 여부 확인, 파일 경로 정합성 검사 (코드 미구현 상태로 실제 기능 작동 검증은 제외).
+- 리스크와 대응: 기획 문서만 생성하므로 시스템 중단 리스크는 없으나, 실제 구현 가능성을 높이기 위해 현재 기술 스택(Prisma, Supabase Postgres/pgvector, Next.js 15)과 100% 매칭되는 구체적인 설계안을 작성한다.
+- 미정 사항: RAG용 임베딩 모델(예: OpenAI text-embedding-3-small 등) 및 LLM 모델(예: Gemini 1.5 Pro/Flash 등)의 과금 및 API 호출 한도 정책.
+
+### 1.0.2 챗봇 MVP 구현 (2026-07-03)
+
+- 작업 목표: 설계 문서를 바탕으로 Tool-using Agent 형태의 1차 MVP 챗봇을 구현한다.
+- 구현 범위:
+  - `/api/chat` Route Handler (`web/src/app/api/chat/route.ts`): Vercel AI SDK를 적용하되, API 키가 없을 때의 안전한 Mock Fallback 에이전트 동작 지원.
+  - Agent Tools 래퍼 (`web/src/lib/tools/productTools.ts`): `searchProducts`, `getProductDetail`, `checkStock`, `addToCart` 도구 구현.
+  - 챗봇 UI 컴포넌트 (`web/src/components/chatbot/`): 플로팅 버튼, 채팅창, 메시지 리스트, 입력창, 상품 추천용 카드 컴포넌트 생성.
+  - 전역 레이아웃 연결: 모든 페이지에서 우측 하단 챗봇이 보이도록 `web/src/app/layout.tsx`에 연동.
+  - Guardrail 적용: 품절 상품 추천 제외, 주문/결제/개인정보 관련 요청 시 미구현 고지, 실패 시 고객센터/상담원 안내, 정책 외 단정 금지.
+- 제외 범위: pgvector 기반 실시간 RAG 인덱싱 및 시맨틱 벡터 검색 구현, 주문/결제 및 개인정보 조회 관련 도구(Tool)의 실코드 구현.
+- 관련 요구사항 ID: FE-011, NF-013, C-021.
+- 주요 화면 또는 모듈: chatbot component, chat route API, product tools wrapper.
+- 구현 단계별 체크리스트:
+  - [x] Agent Tools 래퍼 작성 (`web/src/lib/tools/productTools.ts`)
+  - [x] `/api/chat` Route Handler 작성 (`web/src/app/api/chat/route.ts`)
+  - [x] 챗봇 UI 컴포넌트 작성 (`web/src/components/chatbot/` 하위 파일들)
+  - [x] 전역 레이아웃에 챗봇 컴포넌트 탑재 (`web/src/app/layout.tsx`)
+  - [x] 빌드 및 타입 체크 검증 (`npm run typecheck --prefix web` 및 `npm run build --prefix web`)
+- 검증 방법: 로컬 빌드 및 타입 체크 검사 통과 여부 확인, 코드의 Guardrails 규칙 준수 여부(품절 상품 처리, 미구현 안내 등) 정적 코드 검토.
+- 리스크와 대응: API 키가 없어도 전체 기능(Mock 챗봇 모드)이 무너지지 않도록 안전한 Fallback 규칙 엔진을 연동한다.
+
+### 1.0.3 챗봇 MVP에 Multi-Model Provider 선택 기능 추가 (2026-07-03)
+
+- 작업 목표: 사용자가 사용할 LLM 모델(Gemini, Claude, SK A.X)을 챗봇 UI에서 선택하고, 서버 라우터를 통해 처리하는 어댑터 아키텍처를 구현한다.
+- 구현 범위:
+  - `ModelSelector` 컴포넌트 추가 및 챗봇 연동: `web/src/components/chatbot/ModelSelector.tsx`에 드롭다운 UI 추가. 선택된 `modelProvider`를 `/api/chat` 요청 body에 담아 송신.
+  - `/api/chat` Route Handler 갱신 (`web/src/app/api/chat/route.ts`): 요청 body의 `modelProvider`를 받아 해당 클라이언트를 라우팅.
+  - Provider Adapter & Router 구현: 
+    - `web/src/lib/llm/providers/gemini.ts` (Gemini 어댑터)
+    - `web/src/lib/llm/providers/claude.ts` (Claude 어댑터)
+    - `web/src/lib/llm/providers/sk-ax.ts` (SK A.X 어댑터)
+    - `web/src/lib/llm/router.ts` (환경변수 검증, Fallback 처리 및 응답 포맷 통일)
+  - 설계 문서 갱신: [`docs/shopping-mall-chatbot-rag-agent.md`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md)에 멀티모델 라우터, 어댑터 명세 및 에이전트(Classification, Answer, Refund)별 모델 적용 정책 기술.
+  - 보안 및 비즈니스 가드레일 강화: API Key의 브라우저 노출 금지, 오류 메시지 원문 노출 차단, 환불 판정 고정 모델 정책(Answer Agent만 사용자 선택 모델 존중) 명세 및 가드레일 반영.
+- 제외 범위: 미제공 외부 API의 실제 상용 호출 결제 처리 및 pgvector 통합.
+- 관련 요구사항 ID: FE-011, NF-013, C-021.
+- 주요 화면 또는 모듈: ModelSelector component, LLM Providers, Router.
+- 구현 단계별 체크리스트:
+  - [x] Multi-Model Provider & Router 구현 (`web/src/lib/llm/` 폴더 내 어댑터 및 `router.ts`)
+  - [x] 챗봇 UI 모델 선택 드롭다운 탑재 (`web/src/components/chatbot/ModelSelector.tsx` 및 `ChatBot.tsx` 연동)
+  - [x] `/api/chat` Route Handler에 `modelProvider` 분기 처리 적용
+  - [x] 설계 문서 [`docs/shopping-mall-chatbot-rag-agent.md`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md)에 멀티모델 관련 아키텍처 및 정책 갱신
+  - [x] 타입체크 및 빌드 검증 (`npm run typecheck --prefix web` 및 `npm run build --prefix web`)
+- 검증 방법: 로컬 빌드 및 타입 체크 검사 통과 여부 확인, API Key 비노출 검증 및 Fallback 에러 안내 문구의 정상 반환 여부 확인.
+- 리스크와 대응: 특정 모델 Provider API 호출 실패 시, 오류 원본을 숨기고 정제된 에러 안내문("현재 선택한 AI 모델을 사용할 수 없습니다...")이 반환되도록 Router 단에서 try-catch 및 default fallback(Gemini)을 구현한다.
+
+### 1.0.4 SK A.X 환경변수 옵셔널 정책 보완 (2026-07-03)
+
+- 작업 목표: `SK_AX_BASE_URL` 환경변수를 선택(Optional)으로 변경하고 누락 시 안전하게 예외 차단 및 안내 문구를 반환하도록 수정한다.
+- 구현 범위:
+  - `web/.env.example` 생성: `SK_AX_BASE_URL`을 optional로 명시하고 가이드 작성 및 `OPENAI_API_KEY` 예시 추가.
+  - `sk-ax.ts` (`web/src/lib/llm/providers/sk-ax.ts`) 수정: `SK_AX_BASE_URL` 누락 시 즉각 전용 경고 로그와 함께unavailable 피드백 리턴.
+  - `router.ts` (`web/src/lib/llm/router.ts`) 수정: `sk_ax` 라우팅 전에 `SK_AX_API_KEY`와 `SK_AX_BASE_URL` 유효성을 사전 교차 검증하여 unavailable 결과 조기 리턴.
+  - API Route Handler (`web/src/app/api/chat/route.ts`) 수정: API Route 자체에서도 `sk_ax`인 경우 두 변수가 모두 존재할 때만 API를 호출하도록 2중 검증 이식.
+  - `ModelSelector.tsx` 수정: 드롭다운 옵션 라벨을 `SK A.X (설정 필요)`로 수정하여 직관적 UX 제공.
+- 구현 단계별 체크리스트:
+  - [x] `web/.env.example` 생성 및 optional 주석 기술
+  - [x] `sk-ax.ts` 수정: URL 누락 시 warn 로그 기록 및 전용 unavailability 메시지 반환
+  - [x] `router.ts` 수정: API Key 및 Base URL 사전 교차 검증 구현
+  - [x] Route Handler (`route.ts`) 수정: route 레벨의 key/url 존재 유무 2중 확인 및 에러 메시지 매핑
+  - [x] UI `ModelSelector.tsx` 갱신: 드롭다운 표시명을 `SK A.X (설정 필요)`로 보정
+  - [x] 타입체크 및 빌드 검증 (`npm run typecheck --prefix web` 및 `npm run build --prefix web`)
+- 검증 방법: 로컬 빌드 성공 여부 검사, 로깅 시 API Key 노출 전무 확인, 지정 안내 문구 매칭 검증.
+
+### 1.0.5 OpenAI Provider 선택 기능 추가 (2026-07-03)
+
+- 작업 목표: 챗봇에 OpenAI(gpt-4o-mini 고정) Provider 선택 옵션을 추가하고 라우터/어댑터를 구현한다.
+- 구현 범위:
+  - `openai.ts` (`web/src/lib/llm/providers/openai.ts`) 생성: `gpt-4o-mini` 모델명 상수화 및 API Key 검증, HTTP POST 어댑터 구현.
+  - `router.ts` (`web/src/lib/llm/router.ts`) 수정: `openai` 라우팅 분기 추가 및 API Key 사전 검증.
+  - API Route Handler (`route.ts`) 수정: `modelProvider === "openai"` 인자 검사 및 비인가 provider 차단/gemini 강제 필터 추가.
+  - UI `ModelSelector.tsx` 갱신: 드롭다운 옵션에 `OpenAI` 추가.
+  - `.env.example` 갱신: Required/Optional 주석 설명 명기 및 OpenAI 관련 환경변수 예시 추가.
+  - 아키텍처 문서 [`docs/shopping-mall-chatbot-rag-agent.md`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md) 수정: Mermaid, 요약표, 에이전트별 환불/취소 차단 가드레일에 OpenAI 정책 추가 수록.
+- 구현 단계별 체크리스트:
+  - [x] OpenAI 어댑터 `openai.ts` 작성 및 모델명 상수화
+  - [x] LLM Router `router.ts`에 openai 분기 및 사전 차단 로직 추가
+  - [x] Route Handler (`route.ts`) 검증 보완 및 화이트리스트 차단 추가
+  - [x] 드롭다운 `ModelSelector.tsx`에 OpenAI 옵션 탑재
+  - [x] `.env.example` 및 아키텍처 명세서 수정 반영
+  - [x] 타입체크 및 빌드 검증 (`npm run typecheck --prefix web` 및 `npm run build --prefix web`)
+- 검증 방법: 타입체크/빌드 성공 여부 검사, API Key 비노출 및 unavailable 지정 에러 응답 매칭 검토.
+
 ### 1.1 Image Worker 1 하의 이미지 생성 작업 목표 (2026-07-03)
 
 - 작업 목표: 요청된 하의 누락 이미지 4개를 생성한다.

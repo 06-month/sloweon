@@ -3,6 +3,7 @@ import "./globals.css";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { TabBar } from "@/components/TabBar";
+import ChatBot from "@/components/chatbot/ChatBot";
 
 export const metadata: Metadata = {
   title: { default: "SLOWEON — Quiet City Summer 2026", template: "%s | SLOWEON" },
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main className="flex-1">{children}</main>
         <Footer />
         <TabBar />
+        <ChatBot />
       </body>
     </html>
   );
