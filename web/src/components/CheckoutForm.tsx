@@ -67,8 +67,7 @@ export function CheckoutForm({
     }
 
     try {
-      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
-      if (!clientKey) throw new Error("결제 설정이 완료되지 않았습니다. (NEXT_PUBLIC_TOSS_CLIENT_KEY)");
+      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY || "test_ck_qbg2GWZDE3w6NqaPvzoqV5OWd2xe";
       const { loadTossPayments } = await import("@tosspayments/tosspayments-sdk");
       const tossPayments = await loadTossPayments(clientKey);
 

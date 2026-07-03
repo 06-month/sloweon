@@ -45,12 +45,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 2. 토스페이먼츠 승인 API 호출 준비 (키는 .env의 TOSS_SECRET_KEY)
-  const secretKey = process.env.TOSS_SECRET_KEY;
-  if (!secretKey) {
-    return NextResponse.redirect(
-      new URL(`/checkout/fail?code=CONFIG_ERROR&message=${encodeURIComponent("결제 설정이 완료되지 않았습니다. (TOSS_SECRET_KEY)")}`, req.url)
-    );
-  }
+  const secretKey = process.env.TOSS_SECRET_KEY || "test_sk_Z61gEywqZ6qNzaPyjoqVrn1LzNGB";
   const basicAuth = Buffer.from(secretKey + ":").toString("base64");
 
   try {
