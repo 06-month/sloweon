@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/generate-asset-manifest.mjs && next dev",
-    "build": "node scripts/generate-asset-manifest.mjs && next build",
+    "build": "prisma generate && node scripts/generate-asset-manifest.mjs && next build",
+    "postinstall": "prisma generate",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "db:push": "prisma db push",
