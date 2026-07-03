@@ -24,9 +24,9 @@ export async function POST(req: NextRequest) {
     const lastMessage = messages[messages.length - 1]?.content || "";
     
     // modelProvider 검증 및 화이트리스트 필터링 (요구사항 5)
-    let provider = modelProvider || "gemini";
+    let provider = modelProvider || "sk_ax";
     if (provider !== "gemini" && provider !== "claude" && provider !== "sk_ax" && provider !== "openai") {
-      provider = "gemini";
+      provider = "sk_ax";
     }
 
     // 1. 환경변수 검증 (보안 가드레일)

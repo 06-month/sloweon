@@ -26,7 +26,7 @@ export async function routeLLMRequest(
   const selectedProvider: ModelProvider = 
     provider === "claude" || provider === "sk_ax" || provider === "openai" || provider === "gemini"
       ? (provider as ModelProvider)
-      : "gemini"; // 기본값 gemini
+      : "sk_ax"; // 기본값 sk_ax
 
   // 2. SK A.X 연결 상태 사전 검증
   if (selectedProvider === "sk_ax") {

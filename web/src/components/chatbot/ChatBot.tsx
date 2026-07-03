@@ -20,7 +20,7 @@ interface ParsedProduct {
 export default function ChatBot() {
   const [isOpen, setIsOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [modelProvider, setModelProvider] = useState<ModelProvider>("gemini");
+  const [modelProvider, setModelProvider] = useState<ModelProvider>("sk_ax");
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",

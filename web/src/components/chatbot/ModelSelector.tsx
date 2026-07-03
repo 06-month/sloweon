@@ -19,9 +19,9 @@ export default function ModelSelector({ selected, onChange }: ModelSelectorProps
         onChange={(e) => onChange(e.target.value as ModelProvider)}
         className="chatbot-model-select"
       >
+        <option value="sk_ax">SK A.X</option>
         <option value="gemini">Gemini</option>
         <option value="claude">Claude</option>
-        <option value="sk_ax">SK A.X (설정 필요)</option>
         <option value="openai">OpenAI</option>
       </select>
     </div>
