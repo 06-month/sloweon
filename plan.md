@@ -265,6 +265,52 @@
   - 운영 threshold 최적값은 실제 사용자 질의/trace 누적 후 튜닝 필요
   - 리뷰 데이터가 실제 DB/RAG에 부족한 경우 리뷰 기반 추천은 근거 부족 안내로 제한
 
+### 1.0.11 챗봇 상품 카드 렌더링 개선 (2026-07-03)
+
+- 작업 목표: 챗봇 상품 답변에서 plain text URL/markdown link 중심 노출을 제거하고, ProductFactPack 기반의 상품 이미지·상품명·가격·상품 보기 버튼이 있는 미니 상품 카드 payload와 UI를 구현한다.
+- 구현 범위:
+  - ProductFactPack에 DB 이미지 경로 기반 `imageUrl`, `thumbnailUrl`, `inventory` 추가
+  - ProductFactPack → ProductCard payload 변환
+  - `/api/chat` 응답에 기존 `content` 문자열은 유지하면서 `productCards` 배열 추가
+  - `ChatBot.tsx` 메시지 타입과 렌더링을 `productCards` 기반으로 확장
+  - 추천/검색 답변과 재고 답변 모두 상품 카드 표시 지원
+  - Trace에 productCards 생성 여부, 개수, 상품 ID, missing image, fallback reason 기록
+  - `/admin/agent-traces`에서 상품 카드 payload 확인 가능하게 확장
+  - `docs/shopping-mall-chatbot-rag-agent.md`, `docs/mvp5-inventory-qa-test-cases.md`, `plan.md`, `process.md` 갱신
+- 제외 범위:
+  - RAG-only 상품으로 카드 생성
+  - 존재하지 않는 이미지/URL 추측 생성
+  - 기존 Product/Cart/Payment 데이터 모델 변경
+- 관련 요구사항 ID: FE-011, P-001~P-006, PD-001~PD-010, O-003
+- 주요 화면 또는 모듈:
+  - `web/src/lib/agents/productFacts.ts`
+  - `web/src/lib/agents/productCards.ts`
+  - `web/src/lib/agents/orchestrator.ts`, `answerAgent.ts`, `productAnswer.ts`, `trace.ts`
+  - `web/src/app/api/chat/route.ts`
+  - `web/src/components/chatbot/ChatBot.tsx`, `web/src/app/globals.css`
+  - `web/src/app/admin/agent-traces/page.tsx`
+- 데이터 모델 또는 상태 구조:
+  - `ProductCard`: `productId`, `title`, `subtitle`, `priceKrw`, `imageUrl`, `productUrl`, `badge`, `stockStatus`, `ctaLabel`
+  - Trace card meta: `productCardsGenerated`, `productCardsCount`, `productCardProductIds`, `missingImageProductIds`, `cardRenderMode`, `linkFallbackReason`
+- 구현 단계별 체크리스트:
+  - [x] 현재 Claude 중단 상태 및 기존 챗봇 markdown link parser 확인
+  - [x] ProductFactPack 이미지/inventory 필드 완성
+  - [x] ProductCard payload 생성 및 Answer/Orchestrator/API 응답 연결
+  - [x] ChatBot 미니 상품 카드 UI 구현
+  - [x] Trace 타입 및 Trace Viewer 확장
+  - [x] 재고 확인 답변 상품 카드 생성
+  - [x] 문서 및 테스트 케이스 갱신
+  - [x] 타입체크/빌드 검증
+- 검증 방법:
+  - `npm run typecheck --prefix web`
+  - `npm run build --prefix web`
+  - 가능한 경우 챗봇 질문별 `productCards` 배열, UI 카드 렌더링, 버튼 href, 이미지 표시 확인
+- 리스크와 대응:
+  - 이미지 파일이 없거나 manifest에 없으면 `imageUrl`을 null로 두고 카드 이미지 영역을 생략 또는 placeholder 처리
+  - 재고 질문의 productId가 명시되지 않으면 기존 product search flow에만 카드 표시
+  - local env에 LLM/embedding key가 없으면 배포 환경에서 API 실검증 필요
+- 미정 사항: 카드 가로 스크롤/세로 리스트 최종 UX는 모바일 확인 후 조정
+
 ### 1.1 Image Worker 1 하의 이미지 생성 작업 목표 (2026-07-03)
 
 - 작업 목표: 요청된 하의 누락 이미지 4개를 생성한다.

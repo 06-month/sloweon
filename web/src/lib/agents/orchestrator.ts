@@ -31,11 +31,18 @@ import {
   buildProductFactPacks,
   type ProductFactPack,
 } from "./productFacts";
+import {
+  emptyProductCardGenerationMeta,
+  productFactPacksToProductCards,
+  type ProductCardGenerationMeta,
+  type ProductCardPayload,
+} from "./productCards";
 
 export interface OrchestrationResult {
   role: "assistant";
   content: string;
   traceId: string;
+  productCards: ProductCardPayload[];
 }
 
 type ToolCall = NonNullable<AgentTrace["calledTools"]>[number];
@@ -46,6 +53,8 @@ interface ProductToolExecution {
   ragContext: RagContextItem[];
   ragDiagnostics: RagRetrievalDiagnostics;
   productSearchMeta: ProductSearchTraceMeta;
+  requestedProductId?: string | null;
+  requestedSize?: string | null;
 }
 
 function emptyRagDiagnostics(warning?: string): RagRetrievalDiagnostics {
@@ -133,6 +142,30 @@ function mergeRagResults(results: RagRetrievalResult[]): RagRetrievalResult {
   };
 }
 
+function detailProductToCandidate(product: {
+  id: string;
+  name: string;
+  koreanName: string;
+  price: number;
+  color: string;
+  fit?: string;
+  material?: string;
+  shortDescription?: string;
+  designNotes?: string;
+}): ProductCandidate {
+  return {
+    id: product.id,
+    name: product.name,
+    koreanName: product.koreanName,
+    price: product.price,
+    color: product.color,
+    fit: product.fit,
+    material: product.material,
+    shortDescription: product.shortDescription,
+    designNotes: product.designNotes,
+  };
+}
+
 async function executeProductTools(
   userMessage: string,
   requiredTools: string[]
@@ -194,7 +227,7 @@ async function executeProductTools(
     });
   }
 
-  if (wantsDetail && productId) {
+  if ((wantsDetail || wantsStock) && productId) {
     const detail = await getProductDetail(productId);
     results.push({
       toolName: "getProductDetail",
@@ -204,6 +237,16 @@ async function executeProductTools(
         : detail.error || "not found",
       success: !!detail.product,
     });
+
+    if (
+      detail.product &&
+      !productCandidates.some((candidate) => candidate.id === detail.product!.id)
+    ) {
+      productCandidates = [
+        detailProductToCandidate(detail.product),
+        ...productCandidates,
+      ];
+    }
   }
 
   if (wantsStock && productId) {
@@ -274,6 +317,8 @@ async function executeProductTools(
       hybridResult?.ragDiagnostics ??
       emptyRagDiagnostics("Hybrid product retrieval did not run."),
     productSearchMeta,
+    requestedProductId: productId ?? null,
+    requestedSize: size ?? null,
   };
 }
 
@@ -335,6 +380,11 @@ export async function runOrchestrator(
   let productSearchMeta: ProductSearchTraceMeta | undefined;
   let productCandidates: ProductCandidate[] = [];
   let productFactPacks: ProductFactPack[] = [];
+  let productCards: ProductCardPayload[] = [];
+  let productCardMeta: ProductCardGenerationMeta =
+    emptyProductCardGenerationMeta();
+  let requestedProductId: string | null = null;
+  let requestedSize: string | null = null;
   let dbFactsUsed: string[] = [];
   let groundingWarnings: string[] = [];
   let answerUsedDbFacts = false;
@@ -399,6 +449,8 @@ export async function runOrchestrator(
         calledTools = toolExec.calledTools;
         productCandidates = toolExec.productCandidates;
         productSearchMeta = toolExec.productSearchMeta;
+        requestedProductId = toolExec.requestedProductId ?? null;
+        requestedSize = toolExec.requestedSize ?? null;
         ragContext = toolExec.ragContext;
         ragDiagnostics = toolExec.ragDiagnostics;
 
@@ -418,6 +470,24 @@ export async function runOrchestrator(
           "ProductFactPack"
         );
         groundingWarnings = factPackResult.groundingWarnings;
+
+        const productCardResult = productFactPacksToProductCards(
+          productFactPacks,
+          {
+            requestedProductId: toolExec.requestedProductId,
+            requestedSize: toolExec.requestedSize,
+          }
+        );
+        productCards = productCardResult.productCards;
+        productCardMeta = {
+          ...productCardResult.meta,
+          missingImageProductIds: [
+            ...new Set([
+              ...productCardResult.meta.missingImageProductIds,
+              ...factPackResult.missingImageProductIds,
+            ]),
+          ],
+        };
       } else {
         const ragResult = await retrieveRagForCategory(category, userMessage);
         ragContext = ragResult.items;
@@ -444,6 +514,8 @@ export async function runOrchestrator(
         toolResults: calledTools,
         productCandidates,
         productFactPacks,
+        requestedProductId,
+        requestedSize,
       });
 
       finalAnswer = answerResult.content;
@@ -485,6 +557,13 @@ export async function runOrchestrator(
       rejectedRagSources,
       lowScoreRagSources,
       productFactPacks,
+      productCards,
+      productCardsGenerated: productCardMeta.productCardsGenerated,
+      productCardsCount: productCardMeta.productCardsCount,
+      productCardProductIds: productCardMeta.productCardProductIds,
+      missingImageProductIds: productCardMeta.missingImageProductIds,
+      cardRenderMode: productCardMeta.cardRenderMode,
+      linkFallbackReason: productCardMeta.linkFallbackReason,
       dbFactsUsed,
       groundingWarnings,
       answerUsedDbFacts,
@@ -511,5 +590,6 @@ export async function runOrchestrator(
     role: "assistant",
     content: finalAnswer,
     traceId,
+    productCards,
   };
 }

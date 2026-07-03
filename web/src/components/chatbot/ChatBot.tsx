@@ -3,18 +3,13 @@
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import ModelSelector, { ModelProvider } from "./ModelSelector";
+import ProductMiniCard, { type ProductCard } from "./ProductMiniCard";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-}
-
-interface ParsedProduct {
-  name: string;
-  id: string;
-  category: "tops" | "bottoms";
-  imageUrl: string;
+  productCards?: ProductCard[];
 }
 
 export default function ChatBot() {
@@ -77,7 +72,8 @@ export default function ChatBot() {
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: data.content
+          content: data.content || data.answer || "",
+          productCards: Array.isArray(data.productCards) ? data.productCards : []
         }
       ]);
     } catch (error) {
@@ -87,7 +83,8 @@ export default function ChatBot() {
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "죄송합니다, 일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
+          content: "죄송합니다, 일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
+          productCards: []
         }
       ]);
     } finally {
@@ -95,49 +92,78 @@ export default function ChatBot() {
     }
   };
 
-  const parseProductsFromMessage = (content: string): ParsedProduct[] => {
-    const products: ParsedProduct[] = [];
-    const regex = /\[([^\]]+)\]\(\/products\/([a-zA-Z0-9_-]+)\)/g;
+  const renderBoldText = (text: string) => {
+    if (!text.includes("**")) return text;
+    return text
+      .split("**")
+      .map((part, i) =>
+        i % 2 === 1 ? (
+          <strong key={i} className="chatbot-bold">
+            {part}
+          </strong>
+        ) : (
+          part
+        )
+      );
+  };
+
+  const renderInlineMarkdown = (line: string) => {
+    const nodes: React.ReactNode[] = [];
+    const linkRegex = /\[([^\]]+)\]\((\/[^\)]+)\)/g;
+    let lastIndex = 0;
     let match;
 
-    while ((match = regex.exec(content)) !== null) {
-      const name = match[1];
-      const id = match[2];
-      const category = id.startsWith("top") ? "tops" : "bottoms";
-      const imageUrl = `/menswear_demo_assets/${category}/${id}/detail_image.png`;
-
-      if (!products.some((p) => p.id === id)) {
-        products.push({ name, id, category, imageUrl });
+    while ((match = linkRegex.exec(line)) !== null) {
+      if (match.index > lastIndex) {
+        nodes.push(
+          <React.Fragment key={`text-${lastIndex}`}>
+            {renderBoldText(line.slice(lastIndex, match.index))}
+          </React.Fragment>
+        );
       }
+      nodes.push(
+        <Link
+          key={`link-${match.index}`}
+          href={match[2]}
+          onClick={() => setIsOpen(false)}
+          className="chatbot-inline-link"
+        >
+          {match[1]}
+        </Link>
+      );
+      lastIndex = match.index + match[0].length;
     }
-    return products;
+
+    if (lastIndex < line.length) {
+      nodes.push(
+        <React.Fragment key={`text-${lastIndex}`}>
+          {renderBoldText(line.slice(lastIndex))}
+        </React.Fragment>
+      );
+    }
+
+    return nodes.length > 0 ? nodes : renderBoldText(line);
   };
 
   const renderMessageContent = (text: string) => {
-    const cleanText = text.replace(/\[([^\]]+)\]\(\/products\/[^\)]+\)/g, "$1");
-
-    return cleanText.split("\n").map((line, index) => {
+    return text.split("\n").map((line, index) => {
       let content: React.ReactNode = line;
 
       if (line.startsWith("### ")) {
-        content = <h4 className="chatbot-heading">{line.slice(4)}</h4>;
+        content = <h4 className="chatbot-heading">{renderInlineMarkdown(line.slice(4))}</h4>;
       } else if (line.startsWith("#### ")) {
-        content = <h5 className="chatbot-subheading">{line.slice(5)}</h5>;
+        content = <h5 className="chatbot-subheading">{renderInlineMarkdown(line.slice(5))}</h5>;
       } else if (line.startsWith("> ")) {
-        content = <blockquote className="chatbot-quote">{line.slice(2)}</blockquote>;
-      } else if (line.includes("**")) {
-        const parts = line.split("**");
-        content = parts.map((part, i) => (i % 2 === 1 ? <strong key={i} className="chatbot-bold">{part}</strong> : part));
+        content = <blockquote className="chatbot-quote">{renderInlineMarkdown(line.slice(2))}</blockquote>;
       } else if (line.trim().startsWith("- ") || line.trim().startsWith("* ")) {
         const itemText = line.replace(/^[\s*-]+/, "");
         content = (
           <li className="chatbot-list-item">
-            {itemText.includes("**")
-              ? itemText.split("**").map((part, i) => (i % 2 === 1 ? <strong key={i} className="chatbot-bold">{part}</strong> : part))
-              : itemText
-            }
+            {renderInlineMarkdown(itemText)}
           </li>
         );
+      } else {
+        content = renderInlineMarkdown(line);
       }
 
       return (
@@ -213,7 +239,7 @@ export default function ChatBot() {
           <div className="chatbot-messages">
             {messages.map((message) => {
               const isAssistant = message.role === "assistant";
-              const parsedProducts = isAssistant ? parseProductsFromMessage(message.content) : [];
+              const productCards = isAssistant ? message.productCards || [] : [];
 
               return (
                 <div key={message.id} className={`chatbot-msg-row ${isAssistant ? "chatbot-msg-row--bot" : "chatbot-msg-row--user"}`}>
@@ -223,34 +249,15 @@ export default function ChatBot() {
                     {isAssistant ? renderMessageContent(message.content) : message.content}
                   </div>
 
-                  {/* 상품 추천 카드 */}
-                  {parsedProducts.length > 0 && (
+                  {/* 상품 미니 카드 */}
+                  {productCards.length > 0 && (
                     <div className="chatbot-product-list">
-                      {parsedProducts.map((prod) => (
-                        <Link
-                          key={prod.id}
-                          href={`/products/${prod.id}`}
-                          onClick={() => setIsOpen(false)}
-                          className="chatbot-product-card"
-                        >
-                          <div className="chatbot-product-thumb">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={prod.imageUrl}
-                              alt={prod.name}
-                              className="chatbot-product-img"
-                            />
-                          </div>
-                          <div className="chatbot-product-info">
-                            <p className="chatbot-product-id">{prod.id}</p>
-                            <p className="chatbot-product-name">{prod.name}</p>
-                          </div>
-                          <div className="chatbot-product-arrow">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="chatbot-icon-xs">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-                            </svg>
-                          </div>
-                        </Link>
+                      {productCards.map((product) => (
+                        <ProductMiniCard
+                          key={product.productId}
+                          product={product}
+                          onNavigate={() => setIsOpen(false)}
+                        />
                       ))}
                     </div>
                   )}

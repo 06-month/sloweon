@@ -1,4 +1,5 @@
 import type { ProductFactPack } from "./productFacts";
+import type { ProductCardPayload } from "./productCards";
 
 export interface RagTraceSource {
   sourceType: string;
@@ -52,6 +53,13 @@ export interface AgentTrace {
   rejectedRagSources?: RagTraceSource[];
   lowScoreRagSources?: RagTraceSource[];
   productFactPacks?: ProductFactPack[];
+  productCards?: ProductCardPayload[];
+  productCardsGenerated?: boolean;
+  productCardsCount?: number;
+  productCardProductIds?: string[];
+  missingImageProductIds?: string[];
+  cardRenderMode?: "mini_card" | "markdown_link_fallback";
+  linkFallbackReason?: string | null;
   dbFactsUsed?: string[];
   groundingWarnings?: string[];
   answerUsedDbFacts?: boolean;
@@ -156,6 +164,12 @@ export function addTrace(trace: AgentTrace) {
       reviewFitSummary: pack.reviewFitSummary
         ? maskSensitiveData(pack.reviewFitSummary)
         : pack.reviewFitSummary,
+    })),
+    productCards: trace.productCards?.map((card) => ({
+      ...card,
+      title: maskSensitiveData(card.title),
+      subtitle: card.subtitle ? maskSensitiveData(card.subtitle) : card.subtitle,
+      badge: card.badge ? maskSensitiveData(card.badge) : card.badge,
     })),
   };
 

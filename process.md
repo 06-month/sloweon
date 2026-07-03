@@ -1,5 +1,60 @@
 # 구현 진행 기록
 
+## 2026-07-03 16:02 KST - E 상품 링크/상품 카드 렌더링 개선 시작
+
+### 작업 목표
+
+- 챗봇 상품 답변에서 `상품 보기: /products/...` plain text 또는 markdown link 중심 노출을 ProductFactPack 기반 미니 상품 카드로 전환한다.
+- 추천/검색/재고 답변에서 `productCards` payload를 API 응답에 포함하고, ChatBot UI에서 이미지·상품명·가격·상품 보기 버튼을 렌더링한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- 기존 필수 문서와 MVP4 계획/진행 기록을 기준으로 P0 구매 흐름, 상품명/가격/재고/URL의 DB 기준 정확성, 없는 이미지/URL 추측 금지 원칙을 재확인했다.
+- 추가 요구사항 E: ProductFactPack 이미지 확장, ChatMessage productCards 확장, ProductCard UI, 답변 본문/카드 역할 분리, 재고 답변 카드, trace product card 디버깅 필드, markdown link fallback 정책, 테스트 문서 갱신.
+
+### 초기 코드 진단
+
+- Claude 중단 변경: `web/src/lib/agents/productFacts.ts`에 `imageUrl`과 `resolveProductImageUrl()` 일부가 추가됐지만 실제 pack 반환값에 imageUrl이 들어가지 않았고, `missingImageProductIds`도 반환 누락 상태.
+- `web/src/components/chatbot/ChatBot.tsx`는 현재 markdown link를 regex로 파싱하고 `/menswear_demo_assets/${category}/${id}/detail_image.png`를 추측 생성한다. 요구사항상 이 방식은 제거 필요.
+- `/api/chat`은 orchestrator 결과에서 `content`만 반환한다. `productCards` 응답 확장이 필요하다.
+- `productAnswer.ts`의 ProductFactPack 답변 formatter가 아직 `상품 보기: /products/...` plain text를 본문에 포함한다. 카드가 있으면 본문 링크를 제거해야 한다.
+- `docs/mvp5-inventory-qa-test-cases.md`는 아직 없음. 이번 작업에서 신규 생성 필요.
+
+### 남은 작업
+
+- `web/src/lib/agents/productFacts.ts`: `imageUrl`, `thumbnailUrl`, `inventory`, `missingImageProductIds` 반환 완성. DB 이미지 path는 `assetExists`로 확인되는 경우에만 URL로 변환.
+- `web/src/lib/agents/productCards.ts`: ProductFactPack 기반 `ProductCardPayload` 생성 유틸 추가. 요청 사이즈 품절 시 `out_of_stock` 및 `{size} 품절` badge 반영.
+- `web/src/lib/agents/productAnswer.ts`, `answerAgent.ts`: 상품 답변 본문에서 plain text 상품 URL 제거. 재고/사이즈 질문은 ProductVariant inventory 기준 문구로 결정적 답변.
+- `web/src/lib/agents/orchestrator.ts`, `trace.ts`: `productCards` API payload와 trace meta(`productCardsGenerated`, count, ids, missing images, render mode, fallback reason) 연결.
+- `web/src/app/api/chat/route.ts`: 기존 `content` 호환 유지, `answer` 및 `productCards` 응답 추가. Gemini mock fallback도 가능한 경우 ProductCard payload와 trace card meta 반환.
+- `web/src/components/chatbot/ChatBot.tsx`, `ProductMiniCard.tsx`, `globals.css`: markdown 링크 이미지 경로 추측 제거, `productCards` 기반 미니 카드 렌더링 추가.
+- `web/src/app/admin/agent-traces/page.tsx`: ProductFactPack image/inventory와 Product Cards Payload 단계 표시.
+- `web/src/lib/tools/productTools.ts`, `queryNormalizer.ts`: 상품명 기반 재고 질문 검색 정확도를 위해 원문 토큰/정규화 키워드 검색과 오프화이트 색상 힌트 보강.
+- `docs/shopping-mall-chatbot-rag-agent.md`, `docs/mvp5-inventory-qa-test-cases.md`, `plan.md`: 상품 카드 렌더링 정책과 QA 체크리스트 반영.
+
+### 실행한 명령어와 결과 요약
+
+- `npm run typecheck --prefix web`: 통과 (`tsc --noEmit`)
+- `npm run build --prefix web`: 통과 (`prisma generate`, asset manifest 125개, Next production build 성공)
+- `npm run dev --prefix web -- --hostname 127.0.0.1 --port 3002`: 로컬 dev 서버 기동 후 검증, 종료 완료
+- `POST /api/chat` (`와이드 팬츠 어떤거 있어?`, Gemini mock fallback): `productCards` 5개 반환 확인. 각 카드에 `productId`, `title`, `priceKrw`, `imageUrl`, `productUrl`, `ctaLabel` 포함.
+- `POST /api/chat` (`top_16 L사이즈 재고 있어?`, Gemini mock fallback): `productCards` 1개 반환 확인. `productUrl=/products/top_16`, 실제 이미지 URL 반환.
+- `POST /api/chat` (`환불은 어떤 조건에서 가능해?`, Gemini mock fallback): `productCards: []` 확인.
+- `rg "상품 보기: /products|상품 페이지: /products|/menswear_demo_assets/\\$\\{category\\}" web/src`: 코드 경로에 plain text 상품 URL/추측 이미지 parser 잔존 없음.
+
+### 페르소나 검토
+
+- 김도현 관점: 추천 답변에서 이미지·가격·상품 보기 버튼이 바로 보여 선택 피로를 줄임. 차단 이슈 없음.
+- 박준서 관점: 상품명/가격/소재·핏 subtitle과 바로가기 CTA가 있어 빠른 구매 판단에 유리함. 차단 이슈 없음.
+- 최민재 관점: 재고/사이즈 질문에서 ProductVariant inventory 기반 본문과 카드 badge를 연결하는 구조라 사이즈 판단 흐름에 부합함. 실제 배포 RAG/DB 응답에서 요청 사이즈 품절 badge가 정확히 찍히는지 추가 확인 필요.
+
+### 남은 작업
+
+- 브라우저 자동화 패키지(`puppeteer-core`, `@playwright`)가 로컬 `node_modules`에 없어 실제 카드 클릭/모바일 스크린샷 자동 검증은 미실행.
+- 배포 환경에서 실제 LLM/RAG 경로로 `productCards` trace와 카드 UI 클릭 확인 필요.
+
+---
+
 ## 2026-07-03 15:23 KST - MVP4 RAG 정확도 개선 및 Toss 결제 버튼 통합 시작
 
 ### 작업 목표

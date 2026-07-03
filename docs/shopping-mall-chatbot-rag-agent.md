@@ -491,7 +491,7 @@ web/
 | | Cohere Rerank | — | **미구현** | Top-20 후보 재정렬 |
 | | 대화 기록/세션 DB | `web/prisma/schema.prisma` | **미구현** | ChatSession, ChatMessage |
 | **구현 완료된 기능 (MVP)** | LLM Route Handler API | [`web/src/app/api/chat/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/chat/route.ts) | **구현 완료** | Vercel AI SDK + LLM Router 연동 및 Mock Fallback 탑재 완료 |
-| | 챗봇 프론트엔드 UI 컴포넌트 | [`web/src/components/chatbot/ChatBot.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ChatBot.tsx) | **구현 완료** | Floating Bubble UI, 메시지 리스트, 입력창, 상품 카드 파싱 렌더링 완료 |
+| | 챗봇 프론트엔드 UI 컴포넌트 | [`web/src/components/chatbot/ChatBot.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ChatBot.tsx) | **구현 완료** | Floating Bubble UI, 메시지 리스트, 입력창, `productCards` payload 기반 미니 상품 카드 렌더링 완료 |
 | | Agent Tools 실코드 랩핑 | [`web/src/lib/tools/productTools.ts`](file:///Users/6_month/sk-project/web/src/lib/tools/productTools.ts) | **구현 완료** | 4대 툴(Search, Detail, Stock, AddCart) Prisma & Server Action 연동 랩핑 완료 |
 | | Multi-Model Selector 컴포넌트 | [`web/src/components/chatbot/ModelSelector.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ModelSelector.tsx) | **구현 완료** | Gemini, Claude, SK A.X, OpenAI 선택 UI 및 챗봇 연계 완료 |
 | | LLM Router & Provider 어댑터 | [`web/src/lib/llm/router.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/router.ts) | **구현 완료** | modelProvider별 라우팅 및 환경변수 보안 검증, 에러 마스킹 구현 완료 (OpenAI 어댑터 포함) |
@@ -647,6 +647,9 @@ MVP4의 목표는 RAG가 "검색된다"에서 끝나지 않고, 답변의 상품
   description,
   stockSummary: { inStock, totalStock, availableOptions },
   productUrl,
+  imageUrl,
+  thumbnailUrl,
+  inventory,
   sizeSpecs,
   modelFit,
   reviewFitSummary,
@@ -656,8 +659,39 @@ MVP4의 목표는 RAG가 "검색된다"에서 끝나지 않고, 답변의 상품
 ```
 
 - 가격/재고/URL은 DB에서만 구성한다.
+- `imageUrl`/`thumbnailUrl`은 DB의 `detailImagePath`, `wornImagePath`, `lookbookImagePath` 중 실제 asset이 존재하는 경로만 정적 URL로 변환한다. 존재하지 않는 이미지 경로는 추측하지 않고 `null`로 둔다.
+- `inventory`는 ProductVariant의 `colorName`, `size`, `stock`, `status`를 포함하며, 재고 질문의 요청 사이즈 품절 badge를 만드는 데 사용한다.
 - `product`, `product_detail`, `size_guide`, `review_summary` RAG source는 `metadata.productId` 또는 sourceId prefix(`detail_`, `size_`, `review_`)로 DB 상품과 매칭한다.
 - DB 후보에 없거나 품절인 상품은 최종 답변 후보에서 제외한다.
+
+#### Product Mini Card 렌더링 정책
+
+상품 추천/검색/재고 답변은 본문에 plain text URL(`상품 보기: /products/top_16`)을 쓰지 않는다. 이동 동선은 API 응답의 `productCards` 배열과 챗봇 미니 카드 UI가 담당한다.
+
+`ProductCard` 구조:
+
+```ts
+{
+  productId,
+  title,
+  subtitle,
+  priceKrw,
+  imageUrl,
+  productUrl,
+  badge,
+  stockStatus,
+  ctaLabel
+}
+```
+
+규칙:
+
+- 카드는 반드시 `ProductFactPack`에서만 생성한다.
+- RAG에만 있는 상품, LLM이 생성한 상품명, 추측 URL/이미지는 카드로 만들지 않는다.
+- 재고 질문에서 요청 사이즈가 품절이면 상품 자체는 카드로 표시하되 `stockStatus: "out_of_stock"` 및 `{size} 품절` badge를 붙인다.
+- 카드 생성이 가능한 경우 본문 markdown 상품 링크를 넣지 않는다.
+- 카드 생성이 불가능하지만 DB 상품 URL이 확인된 경우에만 markdown link fallback을 허용한다.
+- plain text URL fallback은 사용하지 않는다.
 
 #### Retrieval 정책
 
@@ -699,6 +733,8 @@ Input → Classification → Query Normalization → DB Product Search → RAG R
 - `hallucinationGuardTriggered`
 - `fallbackReason`
 - `rawRagResultsCount`, `groupedRagResultsCount`, `droppedLowScoreCount`, `deduplicatedCount`
+- `productCards`, `productCardsGenerated`, `productCardsCount`, `productCardProductIds`
+- `missingImageProductIds`, `cardRenderMode`, `linkFallbackReason`
 
 #### RAG Health 확장
 
@@ -727,7 +763,25 @@ Input → Classification → Query Normalization → DB Product Search → RAG R
 
 각 테스트에서 category, DB tool 호출 여부, RAG source 사용 여부, 상품명/가격 정확성, 자동 환불/주문취소 차단 여부, fallback 여부를 확인한다.
 
-### 14.9 미구현 기능 및 리스크
+### 14.9 상품 카드 QA 체크
+
+추가 확인 질문:
+
+1. 오프화이트 라이트웨이트 집 니트 자켓 L사이즈 재고 있어?
+2. 와이드 팬츠 어떤거 있어?
+3. 베이지 와이드 팬츠 있어?
+4. 환불은 어떤 조건에서 가능해?
+5. 주문 취소해줘
+
+확인 기준:
+
+- 상품 질문은 API 응답에 `productCards` 배열이 포함된다.
+- 카드에는 DB 기반 상품명, 가격, `productUrl`, 실제 존재하는 `imageUrl` 또는 placeholder가 표시된다.
+- 카드 버튼은 `/products/{productId}`로 이동한다.
+- 정책/주문취소 답변에는 상품 카드가 없어야 한다.
+- `/admin/agent-traces`에서 ProductFactPack과 Product Cards Payload 단계가 확인된다.
+
+### 14.10 미구현 기능 및 리스크
 
 **미구현**: BM25 sparse search, Cohere rerank, Trace DB 영구 저장, 주문 조회 Tool, 채팅 세션 DB, RAG sync background job
 
@@ -737,5 +791,4 @@ Input → Classification → Query Normalization → DB Product Search → RAG R
 - ivfflat 인덱스는 데이터 증가 시 recall 튜닝 필요
 - Gemini embedding(768dim)과 OpenAI(1536dim) 혼용 시 테이블 dimension 불일치 주의
 - **Vercel `/api/admin/rag-sync`**: 60초 maxDuration 내 대량 embedding 미완료 가능 → 운영 시 worker/cron 분리 권장
-
 

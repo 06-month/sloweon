@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { assetExists, assetUrl } from "@/lib/assets";
 import type { ProductCandidate } from "./productAnswer";
 import {
   getRagProductId,
@@ -23,6 +24,15 @@ export interface ProductFactPack {
     availableOptions: string[];
   };
   productUrl: string;
+  /** DB에 저장된 실제 이미지 경로 중 존재 확인된 것만. 없으면 null (경로 추측 금지) */
+  imageUrl: string | null;
+  thumbnailUrl: string | null;
+  inventory: Array<{
+    colorName: string;
+    size: string;
+    stock: number;
+    status: string;
+  }>;
   sizeSpecs: Array<{
     size: string;
     totalLength?: number | null;
@@ -52,6 +62,29 @@ export interface ProductFactPackBuildResult {
   ragSourcesUsed: RagRejectedSource[];
   rejectedRagSources: RagRejectedSource[];
   groundingWarnings: string[];
+  missingImageProductIds: string[];
+}
+
+/**
+ * DB에 저장된 이미지 경로 중 실제 파일이 존재하는 첫 번째를 정적 URL로 변환.
+ * 우선순위: detail → worn → lookbook. 없으면 null (카드에서 이미지 영역 생략).
+ */
+export function resolveProductImageUrl(paths: {
+  detailImagePath?: string | null;
+  wornImagePath?: string | null;
+  lookbookImagePath?: string | null;
+}): string | null {
+  const ordered = [
+    paths.detailImagePath,
+    paths.wornImagePath,
+    paths.lookbookImagePath,
+  ];
+  for (const relativePath of ordered) {
+    if (relativePath && assetExists(relativePath)) {
+      return assetUrl(relativePath);
+    }
+  }
+  return null;
 }
 
 const PRODUCT_RAG_SOURCE_TYPES = new Set([
@@ -115,6 +148,7 @@ export async function buildProductFactPacks(params: {
         .filter((item) => PRODUCT_RAG_SOURCE_TYPES.has(item.sourceType))
         .map((item) => toTraceSource(item, "NO_DB_PRODUCT_CANDIDATES")),
       groundingWarnings: ["DB product search returned no candidates."],
+      missingImageProductIds: [],
     };
   }
 
@@ -192,6 +226,11 @@ export async function buildProductFactPacks(params: {
       const ragEvidence = ragByProductId
         .get(product.id)
         ?.sort((a, b) => b.score - a.score) ?? [];
+      const imageUrl = resolveProductImageUrl({
+        detailImagePath: product.detailImagePath,
+        wornImagePath: product.wornImagePath,
+        lookbookImagePath: product.lookbookImagePath,
+      });
 
       return {
         productId: product.id,
@@ -211,6 +250,23 @@ export async function buildProductFactPacks(params: {
           ),
         },
         productUrl: `/products/${product.id}`,
+        imageUrl,
+        thumbnailUrl: imageUrl,
+        inventory: product.variants
+          .map((variant) => ({
+            colorName: variant.colorName,
+            size: variant.size,
+            stock: variant.stock,
+            status: variant.status,
+          }))
+          .sort((a, b) => {
+            const sizeOrder = ["XS", "S", "M", "L", "XL"];
+            const sizeDiff =
+              sizeOrder.indexOf(a.size.toUpperCase()) -
+              sizeOrder.indexOf(b.size.toUpperCase());
+            if (sizeDiff !== 0) return sizeDiff;
+            return a.colorName.localeCompare(b.colorName);
+          }),
         sizeSpecs: product.sizeSpecs
           .map((spec) => ({
             size: spec.size,
@@ -262,11 +318,22 @@ export async function buildProductFactPacks(params: {
     groundingWarnings.push("RAG sources were retrieved but none matched DB product facts.");
   }
 
+  const missingImageProductIds = productFactPacks
+    .filter((pack) => !pack.imageUrl)
+    .map((pack) => pack.productId);
+
+  if (missingImageProductIds.length > 0) {
+    groundingWarnings.push(
+      `Product cards will render without DB-backed images for: ${missingImageProductIds.join(", ")}`
+    );
+  }
+
   return {
     productFactPacks,
     dbFactsUsed,
     ragSourcesUsed,
     rejectedRagSources,
     groundingWarnings,
+    missingImageProductIds,
   };
 }

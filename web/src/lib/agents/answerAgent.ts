@@ -2,6 +2,7 @@ import { routeLLMRequest } from "../llm/router";
 import { buildAnswerPromptWithContext } from "./prompts";
 import type { RagContextItem } from "../rag/retriever";
 import {
+  formatInventoryFactPackAnswer,
   formatProductFactPackAnswer,
   type ProductCandidate,
 } from "./productAnswer";
@@ -33,6 +34,8 @@ export interface AnswerAgentInput {
   toolResults: AnswerOutput["calledTools"];
   productCandidates?: ProductCandidate[];
   productFactPacks?: ProductFactPack[];
+  requestedProductId?: string | null;
+  requestedSize?: string | null;
 }
 
 function summarizeToolResults(
@@ -79,15 +82,26 @@ export async function runAnswerAgent(
     toolResults,
     productCandidates = [],
     productFactPacks = [],
+    requestedProductId,
+    requestedSize,
   } = input;
 
   if (category === "product" && productFactPacks.length > 0) {
     const userMessage = messages[messages.length - 1]?.content || "";
+    const inventoryAnswer = formatInventoryFactPackAnswer({
+      packs: productFactPacks,
+      userMessage,
+      requestedProductId,
+      requestedSize,
+    });
+
     return {
-      content: formatProductFactPackAnswer(
-        productFactPacks,
-        buildProductIntro(category, userMessage)
-      ),
+      content:
+        inventoryAnswer ||
+        formatProductFactPackAnswer(
+          productFactPacks,
+          buildProductIntro(category, userMessage)
+        ),
       calledTools: toolResults,
       modelUsed: "deterministic-product-facts",
       answerUsedDbFacts: true,

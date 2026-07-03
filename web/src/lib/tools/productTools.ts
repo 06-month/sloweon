@@ -24,6 +24,8 @@ const PRODUCT_SELECT = {
   designNotes: true,
   stylingNotes: true,
   detailImagePath: true,
+  wornImagePath: true,
+  lookbookImagePath: true,
 } as const;
 
 type ProductRow = {
@@ -40,7 +42,24 @@ type ProductRow = {
   designNotes: string;
   stylingNotes: string;
   detailImagePath: string;
+  wornImagePath: string;
+  lookbookImagePath: string;
 };
+
+const STOPWORDS = new Set([
+  "추천",
+  "해줘",
+  "검색",
+  "찾아줘",
+  "목록",
+  "재고",
+  "사이즈",
+  "있어",
+  "있나요",
+  "남았",
+  "남았나요",
+  "상품",
+]);
 
 function buildInStockWhere(base: Record<string, unknown>) {
   return {
@@ -95,6 +114,7 @@ export async function searchProducts(params: SearchProductsParams) {
 
     const searchTerms = normalized
       ? [
+          ...normalized.keywords,
           ...normalized.fitHints,
           ...normalized.colorHints,
           ...normalized.materialHints,
@@ -102,12 +122,13 @@ export async function searchProducts(params: SearchProductsParams) {
         ]
       : [];
 
-    if (params.query && !normalized) {
+    if (params.query) {
       searchTerms.push(
         ...params.query
           .replace(/[?？!！.]/g, " ")
           .split(/\s+/)
-          .filter((w) => w.length >= 2)
+          .map((w) => w.trim())
+          .filter((w) => w.length >= 2 && !STOPWORDS.has(w))
       );
     }
 

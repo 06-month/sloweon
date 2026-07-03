@@ -55,6 +55,14 @@ interface AgentTrace {
       availableOptions: string[];
     };
     productUrl: string;
+    imageUrl?: string | null;
+    thumbnailUrl?: string | null;
+    inventory?: Array<{
+      colorName: string;
+      size: string;
+      stock: number;
+      status: string;
+    }>;
     sizeSpecs: Array<{ size: string }>;
     modelFit?: {
       modelName: string;
@@ -67,6 +75,23 @@ interface AgentTrace {
     ragEvidenceTitles: string[];
     ragEvidencePreview: string[];
   }>;
+  productCards?: Array<{
+    productId: string;
+    title: string;
+    subtitle?: string;
+    priceKrw?: number;
+    imageUrl?: string;
+    productUrl: string;
+    badge?: string;
+    stockStatus?: "available" | "out_of_stock" | "limited" | "unknown";
+    ctaLabel?: string;
+  }>;
+  productCardsGenerated?: boolean;
+  productCardsCount?: number;
+  productCardProductIds?: string[];
+  missingImageProductIds?: string[];
+  cardRenderMode?: "mini_card" | "markdown_link_fallback";
+  linkFallbackReason?: string | null;
   dbFactsUsed?: string[];
   groundingWarnings?: string[];
   answerUsedDbFacts?: boolean;
@@ -494,6 +519,8 @@ export default function AgentTracesPage() {
                             <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-zinc-400">
                               <div>id: <span className="font-mono text-zinc-300">{pack.productId}</span></div>
                               <div>url: <span className="font-mono text-zinc-300">{pack.productUrl}</span></div>
+                              <div>image: <span className="font-mono text-zinc-300">{pack.imageUrl || pack.thumbnailUrl || "none"}</span></div>
+                              <div>inventory rows: <span className="font-mono text-zinc-300">{pack.inventory?.length ?? 0}</span></div>
                               <div>fit: <span className="text-zinc-300">{pack.fit}</span></div>
                               <div>material: <span className="text-zinc-300">{pack.material}</span></div>
                               <div>stock: <span className="text-zinc-300">{pack.stockSummary.totalStock}</span></div>
@@ -513,7 +540,79 @@ export default function AgentTracesPage() {
                   </div>
                 </div>
 
-                {/* 6. Tool Execution */}
+                {/* 6. Product Cards */}
+                <div className="flex gap-4 relative">
+                  <div className="w-6 h-6 rounded-full bg-yellow-950 border border-yellow-900 text-yellow-300 text-xs font-bold flex items-center justify-center z-10">
+                    PC
+                  </div>
+                  <div className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl p-4">
+                    <span className="text-[10px] text-yellow-300 font-bold uppercase tracking-wider">Product Cards Payload</span>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 text-xs">
+                      <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
+                        <span className="text-[10px] text-zinc-500 uppercase">Generated</span>
+                        <p className="mt-1 text-zinc-200 font-mono">{selectedTrace.productCardsGenerated ? "true" : "false"}</p>
+                      </div>
+                      <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
+                        <span className="text-[10px] text-zinc-500 uppercase">Count</span>
+                        <p className="mt-1 text-zinc-200 font-mono">{selectedTrace.productCardsCount ?? selectedTrace.productCards?.length ?? 0}</p>
+                      </div>
+                      <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
+                        <span className="text-[10px] text-zinc-500 uppercase">Render Mode</span>
+                        <p className="mt-1 text-zinc-200 font-mono">{selectedTrace.cardRenderMode || "-"}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-zinc-400">
+                      <div>
+                        card ids:{" "}
+                        <span className="font-mono text-zinc-300">
+                          {selectedTrace.productCardProductIds?.join(", ") || "-"}
+                        </span>
+                      </div>
+                      <div>
+                        missing images:{" "}
+                        <span className="font-mono text-zinc-300">
+                          {selectedTrace.missingImageProductIds?.join(", ") || "-"}
+                        </span>
+                      </div>
+                      {selectedTrace.linkFallbackReason && (
+                        <div className="md:col-span-2">
+                          fallback reason:{" "}
+                          <span className="font-mono text-amber-300">
+                            {selectedTrace.linkFallbackReason}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedTrace.productCards && selectedTrace.productCards.length > 0 ? (
+                      <div className="mt-3 flex flex-col gap-2">
+                        {selectedTrace.productCards.map((card) => (
+                          <div key={card.productId} className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3 text-xs">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-zinc-100 font-bold truncate">{card.title}</span>
+                              <span className="text-emerald-400 font-mono shrink-0">
+                                {card.priceKrw ? `${card.priceKrw.toLocaleString()}원` : "-"}
+                              </span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-zinc-400">
+                              <div>id: <span className="font-mono text-zinc-300">{card.productId}</span></div>
+                              <div>url: <span className="font-mono text-zinc-300">{card.productUrl}</span></div>
+                              <div>image: <span className="font-mono text-zinc-300">{card.imageUrl || "none"}</span></div>
+                              <div>stock: <span className="font-mono text-zinc-300">{card.stockStatus || "unknown"}</span></div>
+                              <div>badge: <span className="font-mono text-zinc-300">{card.badge || "-"}</span></div>
+                              <div>cta: <span className="font-mono text-zinc-300">{card.ctaLabel || "상품 보기"}</span></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-500 mt-3">No product cards attached to this answer.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 7. Tool Execution */}
                 <div className="flex gap-4 relative">
                   <div className="w-6 h-6 rounded-full bg-emerald-950 border border-emerald-900 text-emerald-400 text-xs font-bold flex items-center justify-center z-10">
                     TL

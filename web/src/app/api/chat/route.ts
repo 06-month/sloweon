@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { routeLLMRequest } from "@/lib/llm/router";
 import { runOrchestrator } from "@/lib/agents/orchestrator";
 import { addTrace } from "@/lib/agents/trace";
+import { resolveProductImageUrl } from "@/lib/agents/productFacts";
+import type { ProductCardPayload } from "@/lib/agents/productCards";
 import { searchProducts, getProductDetail, checkStock, addToCart } from "@/lib/tools/productTools";
 import { tool } from "ai";
 import { z } from "zod";
@@ -38,6 +40,10 @@ export async function POST(req: NextRequest) {
       // Mock Agent 에칭 결과 디버깅을 위한 Trace 수집
       const traceId = "tr_" + Math.random().toString(36).substr(2, 9);
       const isRefundKeywords = lastMessage.includes("환불") || lastMessage.includes("반품") || lastMessage.includes("결제") || lastMessage.includes("주문") || lastMessage.includes("배송");
+      const fallbackProductCards = fallbackResult.productCards ?? [];
+      const fallbackMissingImageProductIds = fallbackProductCards
+        .filter((card) => !card.imageUrl)
+        .map((card) => card.productId);
       addTrace({
         traceId,
         timestamp: new Date().toLocaleString("ko-KR"),
@@ -50,6 +56,17 @@ export async function POST(req: NextRequest) {
           reason: "API Key 미비로 인한 Mock 고속 룰매칭 의도 분류",
           nextAgent: isRefundKeywords ? "refundDecisionAgent" : "answerAgent"
         },
+        productCards: fallbackProductCards,
+        productCardsGenerated: fallbackProductCards.length > 0,
+        productCardsCount: fallbackProductCards.length,
+        productCardProductIds: fallbackProductCards.map((card) => card.productId),
+        missingImageProductIds: fallbackMissingImageProductIds,
+        cardRenderMode:
+          fallbackProductCards.length > 0
+            ? "mini_card"
+            : "markdown_link_fallback",
+        linkFallbackReason:
+          fallbackProductCards.length > 0 ? null : "MOCK_NO_PRODUCT_CARDS",
         finalAnswer: fallbackResult.content,
         guardrailActions: {
           blockedOrderAction: lastMessage.includes("주문") || lastMessage.includes("결제"),
@@ -60,28 +77,38 @@ export async function POST(req: NextRequest) {
         error: null
       });
 
-      return NextResponse.json(fallbackResult);
+      return NextResponse.json({
+        ...fallbackResult,
+        answer: fallbackResult.content,
+        productCards: fallbackResult.productCards ?? [],
+      });
     }
 
     // 그 외 Provider들의 API Key 누락 체크
     if (provider === "claude" && !process.env.ANTHROPIC_API_KEY) {
       return NextResponse.json({
         role: "assistant",
-        content: "현재 선택한 AI 모델을 사용할 수 없습니다. 다른 모델을 선택하거나 잠시 후 다시 시도해 주세요."
+        content: "현재 선택한 AI 모델을 사용할 수 없습니다. 다른 모델을 선택하거나 잠시 후 다시 시도해 주세요.",
+        answer: "현재 선택한 AI 모델을 사용할 수 없습니다. 다른 모델을 선택하거나 잠시 후 다시 시도해 주세요.",
+        productCards: [],
       });
     }
 
     if (provider === "sk_ax" && (!process.env.SK_AX_API_KEY || !process.env.SK_AX_BASE_URL)) {
       return NextResponse.json({
         role: "assistant",
-        content: "현재 SK A.X 모델 연결 정보가 완전히 설정되지 않았습니다. Gemini 또는 Claude를 선택해 주세요."
+        content: "현재 SK A.X 모델 연결 정보가 완전히 설정되지 않았습니다. Gemini 또는 Claude를 선택해 주세요.",
+        answer: "현재 SK A.X 모델 연결 정보가 완전히 설정되지 않았습니다. Gemini 또는 Claude를 선택해 주세요.",
+        productCards: [],
       });
     }
 
     if (provider === "openai" && !process.env.OPENAI_API_KEY) {
       return NextResponse.json({
         role: "assistant",
-        content: "현재 OpenAI 모델 연결 정보가 완전히 설정되지 않았습니다. 다른 모델을 선택해 주세요."
+        content: "현재 OpenAI 모델 연결 정보가 완전히 설정되지 않았습니다. 다른 모델을 선택해 주세요.",
+        answer: "현재 OpenAI 모델 연결 정보가 완전히 설정되지 않았습니다. 다른 모델을 선택해 주세요.",
+        productCards: [],
       });
     }
 
@@ -94,6 +121,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       role: "assistant",
       content: orchestratorResult.content,
+      answer: orchestratorResult.content,
+      productCards: orchestratorResult.productCards,
       traceId: orchestratorResult.traceId
     });
 
@@ -101,9 +130,34 @@ export async function POST(req: NextRequest) {
     console.error("Chat API Error:", error);
     return NextResponse.json({
       role: "assistant",
-      content: "죄송합니다. 메시지 처리 중 오류가 발생했습니다. 상세한 답변을 원하시면 고객센터 또는 [상담원 연결]을 이용해 주시기 바랍니다."
+      content: "죄송합니다. 메시지 처리 중 오류가 발생했습니다. 상세한 답변을 원하시면 고객센터 또는 [상담원 연결]을 이용해 주시기 바랍니다.",
+      answer: "죄송합니다. 메시지 처리 중 오류가 발생했습니다. 상세한 답변을 원하시면 고객센터 또는 [상담원 연결]을 이용해 주시기 바랍니다.",
+      productCards: [],
     }, { status: 500 });
   }
+}
+
+function toMockProductCard(
+  product: any,
+  overrides: Partial<ProductCardPayload> = {}
+): ProductCardPayload {
+  const imageUrl = resolveProductImageUrl({
+    detailImagePath: product.detailImagePath,
+    wornImagePath: product.wornImagePath,
+    lookbookImagePath: product.lookbookImagePath,
+  });
+
+  return {
+    productId: product.id,
+    title: product.koreanName || product.name || product.id,
+    subtitle: [product.fit, product.material].filter(Boolean).join(" · ") || undefined,
+    priceKrw: product.price,
+    imageUrl: imageUrl || undefined,
+    productUrl: `/products/${product.id}`,
+    stockStatus: "available",
+    ctaLabel: "상품 보기",
+    ...overrides,
+  };
 }
 
 // GEMINI_API_KEY가 존재하지 않을 때 안전하게 작동하는 Mock Agent 규칙 엔진
@@ -124,7 +178,8 @@ async function runMockAgent(query: string) {
   ) {
     return {
       role: "assistant",
-      content: "죄송합니다. 현재 1차 MVP 챗봇에서는 안전한 거래 보안 및 정책 유지를 위해 **주문, 결제, 취소, 배송 및 개인정보 조회** 기능은 직접 제공하지 않습니다. \n\n해당 작업은 [마이페이지](/mypage) 또는 주문서 내 공식 UI를 이용해 주시기 바랍니다. 상세한 안내가 필요하신 경우 [고객센터(1:1 문의 게시판)](/mypage) 또는 [상담원 연결]을 요청해 주세요."
+      content: "죄송합니다. 현재 1차 MVP 챗봇에서는 안전한 거래 보안 및 정책 유지를 위해 **주문, 결제, 취소, 배송 및 개인정보 조회** 기능은 직접 제공하지 않습니다. \n\n해당 작업은 [마이페이지](/mypage) 또는 주문서 내 공식 UI를 이용해 주시기 바랍니다. 상세한 안내가 필요하신 경우 [고객센터(1:1 문의 게시판)](/mypage) 또는 [상담원 연결]을 요청해 주세요.",
+      productCards: [],
     };
   }
 
@@ -149,31 +204,46 @@ async function runMockAgent(query: string) {
       if (cartResult.success) {
         return {
           role: "assistant",
-          content: `요청하신대로 **[${productId.toUpperCase()}]** 상품의 **${color} / ${size}** 옵션을 장바구니에 성공적으로 담았습니다. [장바구니 바로가기](/cart)를 클릭해 확인해 보세요.`
+          content: `요청하신대로 **${productId.toUpperCase()}** 상품의 **${color} / ${size}** 옵션을 장바구니에 성공적으로 담았습니다. [장바구니 바로가기](/cart)를 클릭해 확인해 보세요.`,
+          productCards: [],
         };
       } else {
         return {
           role: "assistant",
-          content: `장바구니 담기에 실패했습니다: ${cartResult.error || "옵션을 찾을 수 없거나 품절입니다."}`
+          content: `장바구니 담기에 실패했습니다: ${cartResult.error || "옵션을 찾을 수 없거나 품절입니다."}`,
+          productCards: [],
         };
       }
     }
     return {
       role: "assistant",
-      content: "장바구니에 상품을 담으시려면 상품 ID(예: `top_01`), 색상(예: `Black`), 사이즈(예: `M`)를 명확히 말씀해 주세요. \n\n*예: 'top_01 블랙 M 장바구니에 담아줘'*"
+      content: "장바구니에 상품을 담으시려면 상품 ID(예: `top_01`), 색상(예: `Black`), 사이즈(예: `M`)를 명확히 말씀해 주세요. \n\n*예: 'top_01 블랙 M 장바구니에 담아줘'*",
+      productCards: [],
     };
   }
 
   // Guardrail 3: 특정 상품 상세 조회
   const productIdMatch = query.match(/(top_\d{2}|bottom_\d{2})/i);
-  if (productIdMatch && (normalizedQuery.includes("상세") || normalizedQuery.includes("정보") || normalizedQuery.includes("치수") || normalizedQuery.includes("사이즈") || normalizedQuery.includes("스펙") || normalizedQuery.includes("소재"))) {
+  if (
+    productIdMatch &&
+    !normalizedQuery.includes("재고") &&
+    !normalizedQuery.includes("남았") &&
+    !normalizedQuery.includes("품절") &&
+    (normalizedQuery.includes("상세") ||
+      normalizedQuery.includes("정보") ||
+      normalizedQuery.includes("치수") ||
+      normalizedQuery.includes("사이즈") ||
+      normalizedQuery.includes("스펙") ||
+      normalizedQuery.includes("소재"))
+  ) {
     const productId = productIdMatch[0].toLowerCase();
     const detailResult = await getProductDetail(productId);
 
     if (detailResult.error || !detailResult.product) {
       return {
         role: "assistant",
-        content: `해당 상품(${productId.toUpperCase()})의 정보를 조회할 수 없습니다. 판매 중인 상품인지 확인해 주시기 바랍니다.`
+        content: `해당 상품(${productId.toUpperCase()})의 정보를 조회할 수 없습니다. 판매 중인 상품인지 확인해 주시기 바랍니다.`,
+        productCards: [],
       };
     }
 
@@ -188,7 +258,7 @@ async function runMockAgent(query: string) {
 
     return {
       role: "assistant",
-      content: `### [${product.koreanName} (${product.name})](/products/${product.id})
+      content: `### ${product.koreanName} (${product.name})
       
 **소재**: ${product.material}
 **실루엣/핏**: ${product.fit}
@@ -201,7 +271,8 @@ ${sizeSpecText}
 #### 🧍 모델 피팅 정보
 ${modelText}
 
-*위 정보는 SLOWEON 데이터베이스에 기반한 실시간 상세 스펙입니다.*`
+*위 정보는 SLOWEON 데이터베이스에 기반한 실시간 상세 스펙입니다.*`,
+      productCards: [toMockProductCard(product)],
     };
   }
 
@@ -212,6 +283,17 @@ ${modelText}
     const size = sizeMatch ? sizeMatch[0].toUpperCase() : "M";
     
     const stockResult = await checkStock(productId, size);
+    const detailResult = await getProductDetail(productId);
+    const hasSaleableStock =
+      stockResult.variants?.some((v: any) => v.status === "ON_SALE" && v.stock > 0) ?? false;
+    const productCards = detailResult.product
+      ? [
+          toMockProductCard(detailResult.product, {
+            stockStatus: hasSaleableStock ? "available" : "out_of_stock",
+            badge: hasSaleableStock ? undefined : `${size} 품절`,
+          }),
+        ]
+      : [];
     if (stockResult.variants && stockResult.variants.length > 0) {
       const variantText = stockResult.variants
         .map((v: any) => `- 색상: **${v.colorName}** | 재고: ${v.stock > 0 ? `**${v.stock}개**` : "**품절 (SOLD_OUT)**"}`)
@@ -222,12 +304,14 @@ ${modelText}
         
 ${variantText}
 
-*실시간 재고 데이터이므로 주문 결제 상황에 따라 동적으로 변동될 수 있습니다.*`
+*실시간 재고 데이터이므로 주문 결제 상황에 따라 동적으로 변동될 수 있습니다.*`,
+        productCards,
       };
     } else {
       return {
         role: "assistant",
-        content: `[${productId.toUpperCase()}] 상품의 ${size} 사이즈 재고 정보를 불러올 수 없거나 옵션이 존재하지 않습니다.`
+        content: `[${productId.toUpperCase()}] 상품의 ${size} 사이즈 재고 정보를 불러올 수 없거나 옵션이 존재하지 않습니다.`,
+        productCards,
       };
     }
   }
@@ -239,6 +323,10 @@ ${variantText}
     normalizedQuery.includes("찾아") ||
     normalizedQuery.includes("목록") ||
     normalizedQuery.includes("셔츠") ||
+    normalizedQuery.includes("팬츠") ||
+    normalizedQuery.includes("슬랙스") ||
+    normalizedQuery.includes("와이드") ||
+    normalizedQuery.includes("릴랙스") ||
     normalizedQuery.includes("바지") ||
     normalizedQuery.includes("의류") ||
     normalizedQuery.includes("아우터") ||
@@ -258,22 +346,27 @@ ${variantText}
     });
 
     if (searchResult.products && searchResult.products.length > 0) {
-      const productCards = searchResult.products
-        .map((p: any) => `- **[${p.koreanName}](/products/${p.id})** (${p.price.toLocaleString()}원) - ${p.color} / ${p.shortDescription}`)
+      const productLines = searchResult.products
+        .map((p: any) => `- **${p.koreanName}** (${p.price.toLocaleString()}원) - ${p.color} / ${p.shortDescription}`)
         .join("\n");
+      const productCards = searchResult.products.map((p: any) =>
+        toMockProductCard(p)
+      );
 
       return {
         role: "assistant",
         content: `### 🔍 고객님께 추천하는 SLOWEON 상품 목록입니다.
 
-${productCards}
+${productLines}
 
-*원하시는 상품의 자세한 스펙이나 모델 정보는 상품명을 클릭하시거나 'top_01 상세 정보 알려줘'와 같이 질문해 주세요.*`
+*원하시는 상품의 자세한 스펙이나 모델 정보는 상품 카드의 상품 보기 버튼을 눌러 확인해 주세요.*`,
+        productCards,
       };
     } else {
       return {
         role: "assistant",
-        content: "죄송합니다. 현재 조건에 부합하는 판매 중인 상품을 찾을 수 없습니다. 다른 키워드(예: '셔츠 추천', '차콜 바지')로 입력해 주시겠습니까?"
+        content: "죄송합니다. 현재 조건에 부합하는 판매 중인 상품을 찾을 수 없습니다. 다른 키워드(예: '셔츠 추천', '차콜 바지')로 입력해 주시겠습니까?",
+        productCards: [],
       };
     }
   }
@@ -281,6 +374,7 @@ ${productCards}
   // 기본 Fallback
   return {
     role: "assistant",
-    content: "안녕하세요! 남성 컨템포러리 패션 브랜드 **SLOWEON**의 쇼핑 도우미 챗봇(MVP)입니다. \n\n현재 챗봇에서는 아래의 실시간 정보 조회 및 쇼핑 도우미 기능을 지원하고 있습니다.\n\n- **상품 추천 및 검색** *(예: '상의 추천해줘', '차콜색 옷 있어?')*\n- **상품 상세 실측 및 모델 핏 정보** *(예: 'top_01 상세 정보 알려줘')*\n- **실시간 옵션 재고 확인** *(예: 'top_02 M사이즈 재고 확인해줘')*\n- **장바구니 담기 대행** *(예: 'top_01 Charcoal M 장바구니에 담아줘')*\n\n궁금한 부분을 말씀해 주시면 빠르게 안내해 드리겠습니다. (주문/결제 및 개인정보 조회 기능은 현재 준비 중이며, 실패 시 상담원 연결이 가능합니다.)"
+    content: "안녕하세요! 남성 컨템포러리 패션 브랜드 **SLOWEON**의 쇼핑 도우미 챗봇(MVP)입니다. \n\n현재 챗봇에서는 아래의 실시간 정보 조회 및 쇼핑 도우미 기능을 지원하고 있습니다.\n\n- **상품 추천 및 검색** *(예: '상의 추천해줘', '차콜색 옷 있어?')*\n- **상품 상세 실측 및 모델 핏 정보** *(예: 'top_01 상세 정보 알려줘')*\n- **실시간 옵션 재고 확인** *(예: 'top_02 M사이즈 재고 확인해줘')*\n- **장바구니 담기 대행** *(예: 'top_01 Charcoal M 장바구니에 담아줘')*\n\n궁금한 부분을 말씀해 주시면 빠르게 안내해 드리겠습니다. (주문/결제 및 개인정보 조회 기능은 현재 준비 중이며, 실패 시 상담원 연결이 가능합니다.)",
+    productCards: [],
   };
 }

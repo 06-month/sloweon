@@ -58,6 +58,7 @@ const COLOR_MAP: Record<string, string[]> = {
   차콜: ["charcoal"],
   카키: ["khaki", "light khaki"],
   화이트: ["white", "off-white"],
+  오프화이트: ["off-white", "white", "cream"],
   스톤: ["stone beige"],
 };
 
