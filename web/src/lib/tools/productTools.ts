@@ -1,67 +1,187 @@
 import { prisma } from "@/lib/db";
 import { addToCart as serverAddToCart } from "@/app/actions/cart";
+import type { NormalizedShoppingQuery } from "@/lib/rag/queryNormalizer";
 
 export interface SearchProductsParams {
   categorySlug?: string;
   color?: string;
   maxPrice?: number;
   query?: string;
+  normalized?: NormalizedShoppingQuery;
+}
+
+const PRODUCT_SELECT = {
+  id: true,
+  name: true,
+  koreanName: true,
+  categorySlug: true,
+  color: true,
+  price: true,
+  status: true,
+  fit: true,
+  material: true,
+  shortDescription: true,
+  designNotes: true,
+  stylingNotes: true,
+  detailImagePath: true,
+} as const;
+
+type ProductRow = {
+  id: string;
+  name: string;
+  koreanName: string;
+  categorySlug: string;
+  color: string;
+  price: number;
+  status: string;
+  fit: string;
+  material: string;
+  shortDescription: string;
+  designNotes: string;
+  stylingNotes: string;
+  detailImagePath: string;
+};
+
+function buildInStockWhere(base: Record<string, unknown>) {
+  return {
+    ...base,
+    status: "ON_SALE",
+    variants: {
+      some: {
+        stock: { gt: 0 },
+        status: "ON_SALE",
+      },
+    },
+  };
+}
+
+function buildSearchOr(terms: string[]) {
+  const or: Record<string, unknown>[] = [];
+  for (const term of terms) {
+    if (!term || term.length < 2) continue;
+    or.push(
+      { name: { contains: term, mode: "insensitive" } },
+      { koreanName: { contains: term, mode: "insensitive" } },
+      { fit: { contains: term, mode: "insensitive" } },
+      { material: { contains: term, mode: "insensitive" } },
+      { designNotes: { contains: term, mode: "insensitive" } },
+      { stylingNotes: { contains: term, mode: "insensitive" } },
+      { shortDescription: { contains: term, mode: "insensitive" } },
+      { color: { contains: term, mode: "insensitive" } }
+    );
+  }
+  return or;
+}
+
+async function queryProducts(
+  where: Record<string, unknown>,
+  take = 5
+): Promise<ProductRow[]> {
+  return prisma.product.findMany({
+    where: buildInStockWhere(where),
+    select: PRODUCT_SELECT,
+    take,
+    orderBy: { publishedAt: "desc" },
+  });
 }
 
 export async function searchProducts(params: SearchProductsParams) {
   try {
-    const { categorySlug, color, maxPrice, query } = params;
-    
-    // Guardrail: status가 ON_SALE인 상품만 노출
-    const whereClause: any = {
-      status: "ON_SALE"
-    };
+    const { normalized } = params;
+    const categorySlug =
+      params.categorySlug || normalized?.categoryHints[0];
+    const maxPrice = params.maxPrice ?? normalized?.maxPrice;
+    const color = params.color || normalized?.colorHints[0];
 
-    if (categorySlug) {
-      whereClause.categorySlug = categorySlug;
+    const searchTerms = normalized
+      ? [
+          ...normalized.fitHints,
+          ...normalized.colorHints,
+          ...normalized.materialHints,
+          ...normalized.seasonHints,
+        ]
+      : [];
+
+    if (params.query && !normalized) {
+      searchTerms.push(
+        ...params.query
+          .replace(/[?？!！.]/g, " ")
+          .split(/\s+/)
+          .filter((w) => w.length >= 2)
+      );
     }
 
+    const uniqueTerms = [...new Set(searchTerms.filter(Boolean))];
+
+    const baseWhere: Record<string, unknown> = {};
+    if (categorySlug) baseWhere.categorySlug = categorySlug;
+    if (maxPrice) baseWhere.price = { lte: maxPrice };
     if (color) {
-      whereClause.color = {
-        contains: color,
-        mode: "insensitive"
-      };
+      baseWhere.color = { contains: color, mode: "insensitive" };
     }
 
-    if (maxPrice) {
-      whereClause.price = {
-        lte: maxPrice
-      };
+    let products: ProductRow[] = [];
+
+    // 1) Strict: category + search terms
+    if (uniqueTerms.length > 0) {
+      products = await queryProducts(
+        { ...baseWhere, OR: buildSearchOr(uniqueTerms) },
+        8
+      );
     }
 
-    if (query) {
-      whereClause.OR = [
-        { name: { contains: query, mode: "insensitive" } },
-        { koreanName: { contains: query, mode: "insensitive" } },
-        { designNotes: { contains: query, mode: "insensitive" } },
-        { stylingNotes: { contains: query, mode: "insensitive" } }
-      ];
+    // 2) Relaxed: category + fit hints only
+    if (products.length < 3 && categorySlug && normalized && normalized.fitHints.length > 0) {
+      const relaxed = await queryProducts(
+        {
+          ...baseWhere,
+          OR: buildSearchOr(normalized.fitHints),
+        },
+        8
+      );
+      const merged = new Map(products.map((p) => [p.id, p]));
+      for (const p of relaxed) merged.set(p.id, p);
+      products = Array.from(merged.values());
     }
 
-    const products = await prisma.product.findMany({
-      where: whereClause,
-      select: {
-        id: true,
-        name: true,
-        koreanName: true,
-        categorySlug: true,
-        color: true,
-        price: true,
-        status: true,
-        shortDescription: true,
-        detailImagePath: true
-      },
-      take: 6
-    });
+    // 3) Fallback: all bottom/top in category with wide/relaxed in fit
+    if (products.length < 3 && categorySlug) {
+      const fitHints = normalized?.fitHints ?? [];
+      const fallbackTerms =
+        fitHints.length > 0 ? fitHints : ["wide", "relaxed", "loose"];
+      const fallback = await queryProducts(
+        {
+          categorySlug,
+          OR: buildSearchOr(fallbackTerms),
+        },
+        8
+      );
+      const merged = new Map(products.map((p) => [p.id, p]));
+      for (const p of fallback) merged.set(p.id, p);
+      products = Array.from(merged.values());
+    }
 
-    return { products };
-  } catch (error: any) {
-    return { error: error.message || "상품 검색에 실패했습니다." };
+    // 4) Last resort: entire category in stock
+    if (products.length < 3 && categorySlug) {
+      const allCat = await queryProducts({ categorySlug }, 8);
+      const merged = new Map(products.map((p) => [p.id, p]));
+      for (const p of allCat) merged.set(p.id, p);
+      products = Array.from(merged.values());
+    }
+
+    // No category hint but fit hints (e.g. only "와이드")
+    if (products.length === 0 && normalized?.fitHints.length) {
+      products = await queryProducts(
+        { OR: buildSearchOr(normalized.fitHints) },
+        8
+      );
+    }
+
+    return { products: products.slice(0, 5) };
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "상품 검색에 실패했습니다.";
+    return { error: message };
   }
 }
 
@@ -78,10 +198,10 @@ export async function getProductDetail(productId: string) {
             colorName: true,
             size: true,
             stock: true,
-            status: true
-          }
-        }
-      }
+            status: true,
+          },
+        },
+      },
     });
 
     if (!product || product.status !== "ON_SALE") {
@@ -89,8 +209,10 @@ export async function getProductDetail(productId: string) {
     }
 
     return { product };
-  } catch (error: any) {
-    return { error: error.message || "상품 상세 조회에 실패했습니다." };
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "상품 상세 조회에 실패했습니다.";
+    return { error: message };
   }
 }
 
@@ -101,16 +223,16 @@ export async function checkStock(productId: string, size: string) {
         productId,
         size: {
           equals: size,
-          mode: "insensitive"
-        }
+          mode: "insensitive",
+        },
       },
       select: {
         id: true,
         colorName: true,
         size: true,
         stock: true,
-        status: true
-      }
+        status: true,
+      },
     });
 
     if (variants.length === 0) {
@@ -118,26 +240,32 @@ export async function checkStock(productId: string, size: string) {
     }
 
     return { variants };
-  } catch (error: any) {
-    return { error: error.message || "재고 확인에 실패했습니다." };
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "재고 확인에 실패했습니다.";
+    return { error: message };
   }
 }
 
-export async function addToCart(productId: string, color: string, size: string, quantity: number = 1) {
+export async function addToCart(
+  productId: string,
+  color: string,
+  size: string,
+  quantity: number = 1
+) {
   try {
-    // 1. variantId 찾기
     const variant = await prisma.productVariant.findFirst({
       where: {
         productId,
         colorName: {
           equals: color,
-          mode: "insensitive"
+          mode: "insensitive",
         },
         size: {
           equals: size,
-          mode: "insensitive"
-        }
-      }
+          mode: "insensitive",
+        },
+      },
     });
 
     if (!variant) {
@@ -148,7 +276,6 @@ export async function addToCart(productId: string, color: string, size: string, 
       return { error: "죄송합니다. 해당 옵션은 품절 상태입니다." };
     }
 
-    // 2. Server Action 호출
     const formData = new FormData();
     formData.set("variantId", variant.id);
     formData.set("quantity", String(quantity));
@@ -159,8 +286,13 @@ export async function addToCart(productId: string, color: string, size: string, 
       return { error: result.error };
     }
 
-    return { success: true, message: "장바구니에 상품을 성공적으로 추가했습니다." };
-  } catch (error: any) {
-    return { error: error.message || "장바구니 담기에 실패했습니다." };
+    return {
+      success: true,
+      message: "장바구니에 상품을 성공적으로 추가했습니다.",
+    };
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "장바구니 담기에 실패했습니다.";
+    return { error: message };
   }
 }

@@ -29,9 +29,11 @@ export const ANSWER_SYSTEM_PROMPT = `당신은 남성 컨템포러리 패션 브
 5. 리뷰/사이즈 조언은 Review.fitFeedback, SizeSpec, ModelFit 근거가 RAG context에 있을 때만 말하십시오.
 6. 배송/교환/환불 정책은 policy chunk 근거가 있을 때만 확답하십시오. 근거가 없으면 고객센터 안내.
 7. 상품 추천 시 상품명, 가격, 소재/핏, 추천 이유를 포함하십시오.
-8. 개인정보(전화번호, 주소 등)와 결제 수단 정보는 절대 외부로 유출하지 마십시오.
-9. 주문 취소·반품·환불 직접 처리 요구 시 직접 실행할 수 없음을 안내하고 마이페이지(/mypage)를 안내하십시오.
-10. 답변 불가 시 정중하게 "상담원 연결" 또는 1:1 문의를 유도하십시오.`;
+8. [Product Candidates]에 나열된 상품만 추천하십시오. 목록에 없는 상품명을 만들지 마십시오.
+9. Product Candidates 또는 RAG Context에 상품이 있으면 "조회할 수 없습니다"라고 답하지 마십시오.
+10. 개인정보(전화번호, 주소 등)와 결제 수단 정보는 절대 외부로 유출하지 마십시오.
+11. 주문 취소·반품·환불 직접 처리 요구 시 직접 실행할 수 없음을 안내하고 마이페이지(/mypage)를 안내하십시오.
+12. 답변 불가 시 정중하게 "상담원 연결" 또는 1:1 문의를 유도하십시오.`;
 
 export const REFUND_SYSTEM_PROMPT = `당신은 남성 컨템포러리 패션 브랜드 "SLOWEON"의 환불 판정 조력 에이전트(Refund Decision Agent)입니다.
 CS 환불/반품 관련 고객 문의의 타당성을 평가하는 데 보조적 판정을 내리는 역할을 수행합니다.
@@ -58,6 +60,14 @@ export function buildAnswerPromptWithContext(params: {
   ragContext: Array<{ sourceType: string; title: string; contentPreview: string; score: number }>;
   toolResults: string;
   category: string;
+  productCandidates?: Array<{
+    id: string;
+    name: string;
+    koreanName: string;
+    price: number;
+    fit?: string;
+    material?: string;
+  }>;
 }): string {
   const ragBlock =
     params.ragContext.length > 0
@@ -67,11 +77,24 @@ export function buildAnswerPromptWithContext(params: {
               `- [${r.sourceType}] ${r.title} (score: ${r.score.toFixed(2)}): ${r.contentPreview}`
           )
           .join("\n")
-      : "(RAG 검색 결과 없음 — 정책/상품 정보 단정 금지)";
+      : "(RAG 검색 결과 없음)";
+
+  const productBlock =
+    params.productCandidates && params.productCandidates.length > 0
+      ? params.productCandidates
+          .map(
+            (p, i) =>
+              `${i + 1}. ${p.koreanName} (${p.name}) — ${p.price.toLocaleString()}원, 핏: ${p.fit || "-"}, 소재: ${p.material || "-"}, id: ${p.id}`
+          )
+          .join("\n")
+      : "(DB 검색 상품 없음)";
 
   return `${ANSWER_SYSTEM_PROMPT}
 
 [분류 카테고리]: ${params.category}
+
+[Product Candidates — 반드시 이 목록의 상품만 추천]
+${productBlock}
 
 [RAG Context]
 ${ragBlock}

@@ -6,57 +6,60 @@ import {
   type SearchProductsParams,
 } from "@/lib/tools/productTools";
 import {
-  parseProductFiltersFromMessage,
-  retrieveProductContext,
-  type ProductFilterHints,
-  type RagContextItem,
-} from "./retriever";
+  normalizeShoppingQuery,
+  type NormalizedShoppingQuery,
+} from "./queryNormalizer";
+import { retrieveProductContext, type RagContextItem } from "./retriever";
+import type { ProductCandidate } from "@/lib/agents/productAnswer";
 
 export interface HybridProductResult {
   dbProducts: NonNullable<
     Awaited<ReturnType<typeof searchProducts>>["products"]
   >;
   ragContext: RagContextItem[];
-  filters: ProductFilterHints;
-}
-
-/** Exclude sold-out products from DB results (variants with stock > 0) */
-async function filterInStockProducts(
-  products: HybridProductResult["dbProducts"]
-): Promise<HybridProductResult["dbProducts"]> {
-  const inStock: HybridProductResult["dbProducts"] = [];
-  for (const p of products) {
-    const detail = await getProductDetail(p.id);
-    if (detail.product) {
-      const hasStock = detail.product.variants.some(
-        (v) => v.stock > 0 && v.status === "ON_SALE"
-      );
-      if (hasStock) inStock.push(p);
-    }
-  }
-  return inStock;
+  normalized: NormalizedShoppingQuery;
+  filters: SearchProductsParams;
 }
 
 export async function runHybridProductRetrieval(
   query: string,
   overrides?: Partial<SearchProductsParams>
 ): Promise<HybridProductResult> {
-  const filters = { ...parseProductFiltersFromMessage(query), ...overrides };
+  const normalized = normalizeShoppingQuery(query);
+
+  const filters: SearchProductsParams = {
+    categorySlug:
+      overrides?.categorySlug || normalized.categoryHints[0],
+    color: overrides?.color || normalized.colorHints[0],
+    maxPrice: overrides?.maxPrice ?? normalized.maxPrice,
+    normalized,
+    ...overrides,
+  };
 
   const [dbResult, ragContext] = await Promise.all([
-    searchProducts({
-      categorySlug: filters.categorySlug,
-      color: filters.color,
-      maxPrice: filters.maxPrice,
-      query: filters.query,
-    }),
-    retrieveProductContext(query, { topK: 5 }),
+    searchProducts(filters),
+    retrieveProductContext(normalized.expandedQuery, { topK: 5 }),
   ]);
 
-  let dbProducts = dbResult.products || [];
-  dbProducts = await filterInStockProducts(dbProducts);
+  const dbProducts = dbResult.products || [];
 
-  return { dbProducts, ragContext, filters };
+  return { dbProducts, ragContext, normalized, filters };
+}
+
+export function dbProductsToCandidates(
+  products: HybridProductResult["dbProducts"]
+): ProductCandidate[] {
+  return products.map((p) => ({
+    id: p.id,
+    name: p.name,
+    koreanName: p.koreanName,
+    price: p.price,
+    color: p.color,
+    fit: p.fit,
+    material: p.material,
+    shortDescription: p.shortDescription,
+    designNotes: p.designNotes,
+  }));
 }
 
 export { checkStock, getProductDetail, addToCart };

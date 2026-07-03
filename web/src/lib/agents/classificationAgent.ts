@@ -97,7 +97,13 @@ function fallbackClassificationRules(message: string): ClassificationOutput {
     normalized.includes("담아") ||
     normalized.includes("장바구니") ||
     normalized.includes("소재") ||
-    normalized.includes("치수")
+    normalized.includes("치수") ||
+    normalized.includes("팬츠") ||
+    normalized.includes("바지") ||
+    normalized.includes("슬랙스") ||
+    normalized.includes("와이드") ||
+    normalized.includes("있어") ||
+    normalized.includes("어떤")
   ) {
     return {
       category: "product",

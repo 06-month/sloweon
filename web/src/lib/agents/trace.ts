@@ -7,6 +7,16 @@ export interface RagTraceSource {
   usedByAgent: string;
 }
 
+export interface ProductSearchTraceMeta {
+  normalizedQuery: string;
+  expandedQuery: string;
+  productSearchFilters: Record<string, unknown>;
+  toolResultsCount: number;
+  ragResultsCount: number;
+  productCandidatesCount: number;
+  searchProductsCalled: boolean;
+}
+
 export interface AgentTrace {
   traceId: string;
   timestamp: string;
@@ -29,11 +39,13 @@ export interface AgentTrace {
     success: boolean;
   }>;
   ragSources?: RagTraceSource[];
+  productSearchMeta?: ProductSearchTraceMeta;
   finalAnswer: string;
   guardrailActions?: {
     blockedOrderAction: boolean;
     blockedRefundAction: boolean;
     fallbackUsed: boolean;
+    fallbackReason?: string | null;
   };
   latency: number;
   error?: string | null;

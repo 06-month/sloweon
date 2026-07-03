@@ -32,11 +32,21 @@ interface AgentTrace {
     contentPreview: string;
     usedByAgent: string;
   }>;
+  productSearchMeta?: {
+    normalizedQuery: string;
+    expandedQuery: string;
+    productSearchFilters: Record<string, unknown>;
+    toolResultsCount: number;
+    ragResultsCount: number;
+    productCandidatesCount: number;
+    searchProductsCalled: boolean;
+  };
   finalAnswer: string;
   guardrailActions?: {
     blockedOrderAction: boolean;
     blockedRefundAction: boolean;
     fallbackUsed: boolean;
+    fallbackReason?: string | null;
   };
   latency: number;
   error?: string | null;
@@ -289,6 +299,13 @@ export default function AgentTracesPage() {
                   </div>
                   <div className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl p-4">
                     <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">RAG Retrieval</span>
+                    {selectedTrace.productSearchMeta && (
+                      <div className="mt-2 mb-3 p-2.5 bg-zinc-950/60 rounded-lg border border-zinc-800/80 text-[10px] font-mono text-zinc-400 space-y-1">
+                        <div><span className="text-zinc-500">normalized:</span> {selectedTrace.productSearchMeta.normalizedQuery}</div>
+                        <div><span className="text-zinc-500">expanded:</span> {selectedTrace.productSearchMeta.expandedQuery}</div>
+                        <div><span className="text-zinc-500">searchProducts:</span> {selectedTrace.productSearchMeta.searchProductsCalled ? "yes" : "no"} | <span className="text-zinc-500">candidates:</span> {selectedTrace.productSearchMeta.productCandidatesCount} | <span className="text-zinc-500">rag:</span> {selectedTrace.productSearchMeta.ragResultsCount}</div>
+                      </div>
+                    )}
                     {selectedTrace.ragSources && selectedTrace.ragSources.length > 0 ? (
                       <div className="flex flex-col gap-1.5 mt-3">
                         {selectedTrace.ragSources.map((rag, i) => (
@@ -392,6 +409,9 @@ export default function AgentTracesPage() {
                           </span>
                           <span className={selectedTrace.guardrailActions.fallbackUsed ? "text-zinc-200" : "text-zinc-500"}>
                             Fallback Rules Triggered
+                            {selectedTrace.guardrailActions.fallbackReason && (
+                              <span className="ml-1 text-amber-400 font-mono">({selectedTrace.guardrailActions.fallbackReason})</span>
+                            )}
                           </span>
                         </div>
                       </div>
