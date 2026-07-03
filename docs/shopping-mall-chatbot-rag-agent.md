@@ -473,5 +473,20 @@ web/
 | | LLM Router & Provider 어댑터 | [`web/src/lib/llm/router.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/router.ts) | **구현 완료** | modelProvider별 라우팅 및 환경변수 보안 검증, 에러 마스킹 구현 완료 (OpenAI 어댑터 포함) |
 | | Agent Orchestrator & Agents | [`web/src/lib/agents/`](file:///Users/6_month/sk-project/web/src/lib/agents) | **구현 완료** | Classification, Answer, Refund 3대 Agent 및 조율기 수록 완료 |
 | | Trace API 및 모니터링 콘솔 | [`web/src/app/api/admin/traces/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/admin/traces/route.ts), `/admin/agent-traces` | **구현 완료** | Timeline HTML 모니터링 뷰어 탑재 완료. (개발 모드 혹은 `ADMIN_TRACE_VIEWER_ENABLED=true` 환경에서만 접근이 허용되는 403 Forbidden 보안 가드 이식 완료) |
+| | LLM Health Check API | [`web/src/app/api/admin/llm-health/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/admin/llm-health/route.ts), `/api/admin/llm-health` | **구현 완료** | 4대 LLM 프로바이더별 환경변수 및 실시간 접속 진단 도구. (보안 가드로 인해 개발 모드 혹은 `ADMIN_TRACE_VIEWER_ENABLED=true`일 때만 제한적으로 접근 허용) |
+
+---
+
+## 13. LLM 연결성 및 헬스 체크 운영 가이드
+
+### 13.1 프로바이더별 상태 진단 개요
+현재 챗봇 운영 체계에서 OpenAI는 실서비스 정상 동작이 최종 검증되었습니다. 반면 Gemini, Claude, SK A.X는 각 운영 플랫폼 계정 권한, Rate Limit, API Key 활성화 여부 및 요금 정책에 따라 오류가 발생할 수 있습니다. 
+
+이를 확인 및 디버깅하기 위해 `/api/admin/llm-health` API 도구를 지원합니다.
+
+### 13.2 보안 가드레일 정책
+*   **API Key 비노출**: 헬스 체크 API의 JSON 응답 본문 및 서버 로그에는 `OPENAI_API_KEY`, `GEMINI_API_KEY` 등 원본 API Key와 민감 인증 헤더가 **절대 노출되지 않고 마스킹** 처리됩니다.
+*   **접근 통제**: 일반 공개 환경에서 해커의 API 유추 공격을 막기 위해 `NODE_ENV === "development"` 개발 환경이거나 운영 배포에서 `ADMIN_TRACE_VIEWER_ENABLED=true` 환경변수가 주입되었을 때만 호출을 허용하며, 그 외에는 즉각 **403 Forbidden** 차단을 응답합니다.
+
 
 

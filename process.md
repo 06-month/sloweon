@@ -1,5 +1,27 @@
 # 구현 진행 기록
 
+## 2026-07-03 - 챗봇 LLM 연결 상태 진단 및 에러 마스킹 강화 완료
+
+### 작업 목표
+Gemini, Claude, SK A.X, OpenAI 등 멀티 모델 연결 실태를 진단하고 에러 전파 및 마스킹을 강화하며 헬스체크 API를 구축한다.
+
+### 읽은 문서와 확인한 요구사항
+- 추가 요구사항: 4개 프로바이더 모델명 환경변수 분리, API endpoint/Authorization header/body 구조 재검수, 에러 4가지(key 누락, 모델 미지원, 쿼타 리밋, invalid request) 구분 및 sanitized error code 이식, 헬스체크 API `/api/admin/llm-health` 생성 및 403 가드 탑재, 챗봇 에러 UX 문구 수정.
+
+### 구현한 변경 사항
+- **모델 기본값 정의**: [`web/src/lib/llm/constants.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/constants.ts) 생성 (Gemini, Claude, SK, OpenAI 디폴트 모델 및 엔드포인트 명세 통합화).
+- **어댑터 로직 보완**:
+  - [`gemini.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/providers/gemini.ts): `GEMINI_MODEL` 환경변수 연동 및 API_KEY_INVALID, RATE_LIMIT_EXCEEDED 등 에러 마스킹 세분화.
+  - [`claude.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/providers/claude.ts): `ANTHROPIC_MODEL` 환경변수 연동 및 에러 분류 보완.
+  - [`sk-ax.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/providers/sk-ax.ts): `SK_AX_MODEL` 및 `SK_AX_CHAT_PATH` 연동을 통한 동적 endpoint 구성 및 에러 세분화.
+  - [`openai.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/providers/openai.ts): `OPENAI_MODEL` 환경변수 연동.
+- **Router 가드 보완**: [`web/src/lib/llm/router.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/router.ts) 수정 (에러 발생 시 사용자 멘트를 OpenAI 유도 문구로 세련되게 통일).
+- **디바이스 로깅 보완**: `trace.ts` 및 `orchestrator.ts`에 `errorCode`, `modelUsed` 기록을 연계하고 마스킹 유지.
+- **헬스 체크 API 생성**: [`web/src/app/api/admin/llm-health/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/admin/llm-health/route.ts) 생성 (테스트 핑 호출을 통해 4개 프로바이더 실시간 진단 제공, 운영 403 보안 가드 포함).
+- **설정 및 문서 반영**: `.env.example` 및 아키텍처 문서 `shopping-mall-chatbot-rag-agent.md`에 반영 완료.
+
+---
+
 ## 2026-07-03 - 챗봇 MVP2 Multi-Agent Orchestration 설계 및 구현 완료
 
 ### 작업 목표

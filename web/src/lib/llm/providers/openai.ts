@@ -1,15 +1,17 @@
 import { LLMResponse, GenerateTextParams } from "../router";
-
-// OpenAI 기본 모델 상수화 (요구사항 1)
-export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+import { DEFAULT_OPENAI_MODEL } from "../constants";
 
 export async function generateOpenAiText(params: GenerateTextParams): Promise<LLMResponse> {
   const apiKey = process.env.OPENAI_API_KEY;
-  const customModel = process.env.OPENAI_MODEL;
-  const model = customModel || DEFAULT_OPENAI_MODEL;
+  const modelName = process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
 
   if (!apiKey) {
-    return { content: "", error: "OPENAI_API_KEY 환경변수가 존재하지 않습니다." };
+    return { 
+      content: "", 
+      error: "OPENAI_API_KEY 환경변수가 존재하지 않습니다.",
+      errorCode: "API_KEY_MISSING",
+      modelUsed: modelName
+    };
   }
 
   try {
@@ -20,7 +22,7 @@ export async function generateOpenAiText(params: GenerateTextParams): Promise<LL
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: model,
+        model: modelName,
         messages: [
           { role: "system", content: params.systemPrompt },
           ...params.messages.map(m => ({
@@ -38,8 +40,26 @@ export async function generateOpenAiText(params: GenerateTextParams): Promise<LL
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "";
-    return { content };
+    return { content, modelUsed: modelName };
   } catch (error: any) {
-    return { content: "", error: error.message || "OpenAI 호출 오류" };
+    const errorMsg = error.message || "";
+    let errorCode = "UNKNOWN_ERROR";
+
+    if (errorMsg.includes("401") || errorMsg.includes("unauthorized") || errorMsg.includes("auth")) {
+      errorCode = "API_KEY_INVALID";
+    } else if (errorMsg.includes("429") || errorMsg.includes("rate") || errorMsg.includes("limit")) {
+      errorCode = "RATE_LIMIT_EXCEEDED";
+    } else if (errorMsg.includes("404") || errorMsg.includes("model") || errorMsg.includes("not found")) {
+      errorCode = "MODEL_NOT_FOUND_OR_UNAVAILABLE";
+    } else if (errorMsg.includes("400") || errorMsg.includes("bad request")) {
+      errorCode = "INVALID_REQUEST";
+    }
+
+    return { 
+      content: "", 
+      error: error.message || "OpenAI 호출 오류", 
+      errorCode,
+      modelUsed: modelName
+    };
   }
 }

@@ -143,6 +143,32 @@
   - [x] 타입체크 및 빌드 검증 (`npm run typecheck --prefix web` 및 `npm run build --prefix web`)
 - 검증 방법: 로컬 빌드 성공 검사, admin/agent-traces 페이지 접속 가능성 검증, mock data 생성 및 trace timelines 렌더링 확인.
 
+### 1.0.7 챗봇 LLM 연결 상태 진단 및 에러 마스킹 강화 (2026-07-03)
+
+- 작업 목표: Gemini, Claude, SK A.X, OpenAI 등 멀티 모델 연결 실태를 진단하고 에러 전파 및 마스킹을 강화하며 헬스체크 API를 구축한다.
+- 구현 범위:
+  - 헬스체크 API 생성: `web/src/app/api/admin/llm-health/route.ts` (보안 가드 403 Forbidden 및 API 키 마스킹 포함)
+  - 모델 상수화: `web/src/lib/llm/constants.ts` 신설
+  - 어댑터별 환경변수 분리 및 에러 세분화:
+    - Gemini: `GEMINI_MODEL` 바인딩 및 API_KEY_INVALID 등 에러 분류
+    - Claude: `ANTHROPIC_MODEL` 바인딩 및 API_KEY_INVALID 등 에러 분류
+    - SK A.X: `SK_AX_MODEL` 및 `SK_AX_CHAT_PATH` 바인딩 및 에러 분류
+    - OpenAI: `OPENAI_MODEL` 바인딩 및 에러 분류
+  - 챗봇 에러 UX 개선: 모델 실패 시 OpenAI 재시도 권유 멘트로 마스킹 강화
+  - Trace 에러 로깅: `trace.ts` 및 `orchestrator.ts`에 `errorCode`, `modelUsed` 로깅 연동
+  - 문서 및 설정 파일 반영: `.env.example`, 아키텍처 문서, plan/process.md
+- 제외 범위: 운영 환경에서의 API Key 및 raw error 노출
+- 관련 요구사항 ID: FE-011, NF-013, C-021
+- 구현 단계별 체크리스트:
+  - [x] 모델 기본값 상수화 (`web/src/lib/llm/constants.ts` 생성)
+  - [x] Provider 어댑터(Gemini, Claude, SK A.X, OpenAI) 환경변수 바인딩 및 에러 코드 분류 개정
+  - [x] Router 및 에러 문구 개선 (`router.ts` 수정)
+  - [x] Trace 디버깅용 errorCode, modelUsed 필드 이식 및 오케스트레이터 연계 (`trace.ts`, `orchestrator.ts` 수정)
+  - [x] 헬스체크 API 개설 (`web/src/app/api/admin/llm-health/route.ts` 작성)
+  - [x] `.env.example` 및 아키텍처 문서 갱신
+  - [x] 타입체크 및 빌드 검증 (`npm run typecheck --prefix web` 및 `npm run build --prefix web`)
+- 검증 방법: 헬스체크 API 호출, 타입체크 및 프로덕션 빌드 성공 여부 검사.
+
 ### 1.1 Image Worker 1 하의 이미지 생성 작업 목표 (2026-07-03)
 
 - 작업 목표: 요청된 하의 누락 이미지 4개를 생성한다.

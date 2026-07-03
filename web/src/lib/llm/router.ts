@@ -6,6 +6,8 @@ import { generateOpenAiText } from "./providers/openai";
 export interface LLMResponse {
   content: string;
   error?: string;
+  errorCode?: string;
+  modelUsed?: string;
 }
 
 export interface GenerateTextParams {
@@ -33,7 +35,8 @@ export async function routeLLMRequest(
     if (!apiKey || !baseUrl) {
       console.warn("LLM Provider [sk_ax] Warning: SK_AX_API_KEY or SK_AX_BASE_URL missing");
       return {
-        content: "현재 SK A.X 모델 연결 정보가 완전히 설정되지 않았습니다. Gemini 또는 Claude를 선택해 주세요."
+        content: "현재 SK A.X 모델 연결 정보가 완전히 설정되지 않았습니다. Gemini 또는 Claude를 선택해 주세요.",
+        errorCode: "SK_AX_CONFIG_MISSING"
       };
     }
   }
@@ -44,7 +47,8 @@ export async function routeLLMRequest(
     if (!apiKey) {
       console.warn("LLM Provider [openai] Warning: OPENAI_API_KEY missing");
       return {
-        content: "현재 OpenAI 모델 연결 정보가 완전히 설정되지 않았습니다. 다른 모델을 선택해 주세요."
+        content: "현재 OpenAI 모델 연결 정보가 완전히 설정되지 않았습니다. 다른 모델을 선택해 주세요.",
+        errorCode: "OPENAI_CONFIG_MISSING"
       };
     }
   }
@@ -66,16 +70,18 @@ export async function routeLLMRequest(
       result = await generateOpenAiText(params);
       break;
     default:
-      result = { content: "", error: "지원하지 않는 Provider입니다." };
+      result = { content: "", error: "지원하지 않는 Provider입니다.", errorCode: "INVALID_PROVIDER" };
   }
 
-  // 5. 실패 시 Fallback 처리 및 보안 가드레일 (사용자 노출용 정제된 에러 반환)
+  // 5. 실패 시 Fallback 처리 및 보안 가드레일 (요구사항 6: 문구 개선)
   if (result.error) {
-    console.error(`LLM Provider [${selectedProvider}] Error:`, result.error);
-    // API 키나 서버의 로우한 에러 원문은 보안 가드레일에 따라 숨기고 정제된 안내 문구를 content로 반환한다.
+    console.error(`LLM Provider [${selectedProvider}] Error (Code: ${result.errorCode}):`, result.error);
+    // API 키나 서버의 로우한 에러 원문은 보안 가드레일에 따라 숨기고 정제된 안내 문구를 반환한다.
     return {
-      content: "현재 선택한 AI 모델을 사용할 수 없습니다. 다른 모델을 선택하거나 잠시 후 다시 시도해 주세요.",
-      error: result.error
+      content: "현재 선택한 AI 모델을 사용할 수 없습니다. OpenAI 모델로 다시 시도하거나 잠시 후 이용해 주세요.",
+      error: result.error,
+      errorCode: result.errorCode,
+      modelUsed: result.modelUsed
     };
   }
 

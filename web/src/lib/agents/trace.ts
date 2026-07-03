@@ -33,6 +33,8 @@ export interface AgentTrace {
   };
   latency: number;
   error?: string | null;
+  errorCode?: string | null;
+  modelUsed?: string | null;
 }
 
 // 런타임 간이 디버깅을 위한 메모리 기반 global cache

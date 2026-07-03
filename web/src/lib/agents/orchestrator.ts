@@ -26,6 +26,8 @@ export async function runOrchestrator(
   let calledTools: any[] = [];
   let ragSources: any[] = [];
   let errorMsg: string | null = null;
+  let errorCode: string | null = null;
+  let modelUsed: string | null = null;
   let blockedOrderAction = false;
   let blockedRefundAction = false;
 
@@ -40,6 +42,8 @@ export async function runOrchestrator(
       const refundResult = await runRefundDecisionAgent(userMessage, sessionInfo);
       
       finalAnswer = refundResult.customerFacingMessage;
+      // 환불 에이전트는 서버 고정 지정 모델 (gemini) 사용
+      modelUsed = process.env.GEMINI_MODEL || "gemini-1.5-flash"; 
       
       ragSources.push({
         sourceType: "RAG Documentation",
@@ -52,6 +56,13 @@ export async function runOrchestrator(
       const answerResult = await runAnswerAgent(messages, selectedProvider, agentModelMode);
       finalAnswer = answerResult.content;
       calledTools = answerResult.calledTools;
+      errorCode = answerResult.errorCode || null;
+      modelUsed = answerResult.modelUsed || null;
+
+      // 만약 AnswerAgent에서 에러가 전파되어 결과에 에러코드가 담긴 경우, 가드레일 액션 연동
+      if (answerResult.errorCode) {
+        errorMsg = `AnswerAgent failed: ${answerResult.errorCode}`;
+      }
 
       // 카테고리별 RAG 매핑 시뮬레이션
       if (classificationResult.category === "delivery") {
@@ -72,11 +83,13 @@ export async function runOrchestrator(
     }
   } catch (err: any) {
     errorMsg = err.message || "Orchestrator 내부 에러";
-    finalAnswer = "죄송합니다. 서비스 조율 중 지연이 발생했습니다. [상담원 연결]을 진행해 주시면 안내해 드리겠습니다.";
+    errorCode = "ORCHESTRATOR_INTERNAL_ERROR";
+    finalAnswer = "현재 선택한 AI 모델을 사용할 수 없습니다. OpenAI 모델로 다시 시도하거나 잠시 후 이용해 주세요.";
   } finally {
     const latency = Date.now() - startTime;
     
     // 4. Trace 이력 기록 (addTrace 내부에서 마스킹 자동 처리)
+    // 보안 가드: API Key나 raw error body는 저장하지 않고 정제된 에러메시지와 errorCode만 보관 (요구사항 7)
     const trace: AgentTrace = {
       traceId,
       timestamp: new Date().toLocaleString("ko-KR"),
@@ -90,10 +103,12 @@ export async function runOrchestrator(
       guardrailActions: {
         blockedOrderAction,
         blockedRefundAction,
-        fallbackUsed: errorMsg !== null
+        fallbackUsed: errorMsg !== null || errorCode !== null
       },
       latency,
-      error: errorMsg
+      error: errorMsg ? `Sanitized Error (Code: ${errorCode})` : null,
+      errorCode,
+      modelUsed
     };
 
     addTrace(trace);

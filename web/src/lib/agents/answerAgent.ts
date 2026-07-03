@@ -9,6 +9,8 @@ export interface AnswerOutput {
     outputSummary: string;
     success: boolean;
   }>;
+  errorCode?: string;
+  modelUsed?: string;
 }
 
 export async function runAnswerAgent(
@@ -30,12 +32,15 @@ export async function runAnswerAgent(
 
     return {
       content: response.content,
-      calledTools: traceTools
+      calledTools: traceTools,
+      errorCode: response.errorCode,
+      modelUsed: response.modelUsed
     };
   } catch (error: any) {
     return {
       content: "죄송합니다. 답변을 생성하는 중 일시적인 서버 지연이 발생하였습니다. 상세한 내용은 고객센터에 확인을 부탁드립니다.",
-      calledTools: []
+      calledTools: [],
+      errorCode: "ANSWER_AGENT_ERROR"
     };
   }
 }
