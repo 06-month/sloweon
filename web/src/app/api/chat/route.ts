@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { routeLLMRequest } from "@/lib/llm/router";
+import { runOrchestrator } from "@/lib/agents/orchestrator";
+import { addTrace } from "@/lib/agents/trace";
 import { searchProducts, getProductDetail, checkStock, addToCart } from "@/lib/tools/productTools";
 import { tool } from "ai";
 import { z } from "zod";
 
-// 챗봇 시스템 프롬프트 및 가드레일 정의
+// 챗봇 시스템 프롬프트 및 가드레일 정의 (AnswerAgent 등에서 사용)
 const SYSTEM_PROMPT = `너는 남성 컨템포러리 패션 브랜드 "SLOWEON"의 인공지능 쇼핑 어시스턴트다.
 아래 가이드라인에 따라 정중하고 세련된 말투로 대답하라.
 
@@ -20,6 +22,7 @@ export async function POST(req: NextRequest) {
   try {
     const { messages, modelProvider } = await req.json();
     const lastMessage = messages[messages.length - 1]?.content || "";
+    
     // modelProvider 검증 및 화이트리스트 필터링 (요구사항 5)
     let provider = modelProvider || "gemini";
     if (provider !== "gemini" && provider !== "claude" && provider !== "sk_ax" && provider !== "openai") {
@@ -31,6 +34,32 @@ export async function POST(req: NextRequest) {
     const hasGeminiKey = !!process.env.GEMINI_API_KEY;
     if (provider === "gemini" && !hasGeminiKey) {
       const fallbackResult = await runMockAgent(lastMessage);
+      
+      // Mock Agent 에칭 결과 디버깅을 위한 Trace 수집
+      const traceId = "tr_" + Math.random().toString(36).substr(2, 9);
+      const isRefundKeywords = lastMessage.includes("환불") || lastMessage.includes("반품") || lastMessage.includes("결제") || lastMessage.includes("주문") || lastMessage.includes("배송");
+      addTrace({
+        traceId,
+        timestamp: new Date().toLocaleString("ko-KR"),
+        userMessage: lastMessage,
+        selectedModelProvider: "gemini (Mock Fallback)",
+        agentModelMode: "normal (Mock Fallback Mode)",
+        classificationResult: {
+          category: isRefundKeywords ? "refund" : (lastMessage.includes("추천") || lastMessage.includes("재고") || lastMessage.includes("장바구니") ? "product" : "other"),
+          confidence: 1.0,
+          reason: "API Key 미비로 인한 Mock 고속 룰매칭 의도 분류",
+          nextAgent: isRefundKeywords ? "refundDecisionAgent" : "answerAgent"
+        },
+        finalAnswer: fallbackResult.content,
+        guardrailActions: {
+          blockedOrderAction: lastMessage.includes("주문") || lastMessage.includes("결제"),
+          blockedRefundAction: isRefundKeywords,
+          fallbackUsed: true
+        },
+        latency: 8,
+        error: null
+      });
+
       return NextResponse.json(fallbackResult);
     }
 
@@ -56,63 +85,16 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2. Gemini API에 전달할 Tools 정의 (Gemini 호출 시에만 연동)
-    const tools = {
-      searchProducts: tool({
-        description: "원하는 조건(카테고리, 가격, 색상, 검색어)에 맞는 판매 중인 상품 목록을 검색합니다.",
-        parameters: z.object({
-          categorySlug: z.enum(["top", "bottom"]).optional(),
-          color: z.string().optional(),
-          maxPrice: z.number().optional(),
-          query: z.string().optional()
-        }),
-        execute: async (args: any) => {
-          return await searchProducts(args);
-        }
-      } as any),
-      getProductDetail: tool({
-        description: "특정 상품의 상세 설명, 소재, 실측 사이즈 스펙, 모델 피팅 정보를 조회합니다.",
-        parameters: z.object({
-          productId: z.string()
-        }),
-        execute: async (args: any) => {
-          return await getProductDetail(args.productId);
-        }
-      } as any),
-      checkStock: tool({
-        description: "특정 상품과 사이즈에 대한 실시간 옵션 재고 및 판매 상태를 확인합니다.",
-        parameters: z.object({
-          productId: z.string(),
-          size: z.string()
-        }),
-        execute: async (args: any) => {
-          return await checkStock(args.productId, args.size);
-        }
-      } as any),
-      addToCart: tool({
-        description: "선택한 상품 옵션(색상, 사이즈)을 사용자의 장바구니에 추가합니다.",
-        parameters: z.object({
-          productId: z.string(),
-          color: z.string(),
-          size: z.string(),
-          quantity: z.number().optional()
-        }),
-        execute: async (args: any) => {
-          return await addToCart(args.productId, args.color, args.size, args.quantity);
-        }
-      } as any)
-    };
-
-    // Router 호출
-    const response = await routeLLMRequest(provider, {
-      systemPrompt: SYSTEM_PROMPT,
-      messages: messages,
-      tools: provider === "gemini" ? tools : undefined
+    // 2. MVP2 Multi-Agent Orchestrator 호출 적용 (요구사항 1 & 3 & 4)
+    const orchestratorResult = await runOrchestrator(messages, provider, {
+      userId: "user_01", // MVP 임시 가상 세션 ID
+      orderId: undefined
     });
 
     return NextResponse.json({
       role: "assistant",
-      content: response.content
+      content: orchestratorResult.content,
+      traceId: orchestratorResult.traceId
     });
 
   } catch (error: any) {

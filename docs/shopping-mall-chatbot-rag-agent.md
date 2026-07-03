@@ -31,6 +31,21 @@ SLOWEON의 주요 고객군(프로젝트 기획 문서 [customer-personas.md](fi
    - 정책: 사용자가 선택한 모델의 자동 판정을 전면 배제하며, **서버 정책으로 고정된 특정 안정성 특화 모델**을 활용하여 판정 조력자로만 기능하고 최종 결정은 **DB 상태와 관리자 승인 플로우**를 강제합니다. OpenAI를 선택했더라도 대화창 내 자동 환불/주문취소/결제취소 처리는 결코 수행되지 않습니다.
    - 이유: 모델의 성능 차이로 인해 승인 여부가 달라지는 비일관성을 방지하고, 악의적 환불 시도로부터 시스템을 보호하기 위함입니다.
 
+### 1.4 에이전트별 세부 명세
+sloweon RAG/Agent 챗봇을 구성하는 3대 에이전트의 세부 기획 및 구현 명세입니다.
+
+| 항목 | **Classification Agent (의도 분류)** | **Answer Agent (자연어 답변)** | **Refund Decision Agent (환불 판정)** |
+| :--- | :--- | :--- | :--- |
+| **Agent Name** | 의도 분류 에이전트 | 자연어 답변/작업 수행 에이전트 | 환불 판정 조력 에이전트 |
+| **Responsibility** | 고객 문의 형태 분류 및 적합 에이전트 분기 | 상품/배송/기타 조건에 근거한 상세 답변 및 툴 기동 | CS 환불/반품 타당성 사전 심사 및 조력 |
+| **Input** | customerMessage, modelMode, selectedProvider | customerMessage, RAG Context, Tool Output | customerMessage, userId, shippingStatus, refundPolicy |
+| **Output** | category, confidence, reason, nextAgent, requiredTools | markdownCSAnswer, calledToolsSummary | decision, reason, requiredAdminAction, message |
+| **LLM Provider Policy** | Gemini (기본 고정), AGENT_MODEL_MODE="sk_only" 시 SK A.X | modelProvider(Gemini/Claude/SK A.X/OpenAI) 사용자 선택 존중 | Gemini (안정성 특화 서버 고정 지정 모델) |
+| **Tools** | None (의도 분석 전담) | `searchProducts`, `getProductDetail`, `checkStock`, `addToCart` | None (결제/주문취소/환불 직접 실행 도구 전면 금지) |
+| **RAG Sources** | None | `size_specs`, `faq_knowledge.json`, reviews | `docs/shopping-mall-chatbot-rag-agent.md#환불규정` |
+| **Prompt Summary** | 문의를 delivery/product/refund/other로 분류해 JSON 응답 | DB 데이터를 근거로 항상 한국어로 답변, 허구 금지 | 즉시 자동 환불 절대 불가 안내 및 관리자 심사 상태 신청 |
+| **Guardrails** | confidence 0.6 미만 시 clarification 되묻기 질문 리턴 | 품절 추천 금지, 개인/결제정보 마스킹, 모르면 상담원 유도 | 대화창 내 자동결제취소 차단, 내부 판단 코드 미노출 |
+| **Implementation Status** | **구현 완료 (MVP2)** | **구현 완료 (MVP2)** | **구현 완료 (MVP2)** |
 
 ---
 
@@ -456,4 +471,7 @@ web/
 | | Agent Tools 실코드 랩핑 | [`web/src/lib/tools/productTools.ts`](file:///Users/6_month/sk-project/web/src/lib/tools/productTools.ts) | **구현 완료** | 4대 툴(Search, Detail, Stock, AddCart) Prisma & Server Action 연동 랩핑 완료 |
 | | Multi-Model Selector 컴포넌트 | [`web/src/components/chatbot/ModelSelector.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ModelSelector.tsx) | **구현 완료** | Gemini, Claude, SK A.X, OpenAI 선택 UI 및 챗봇 연계 완료 |
 | | LLM Router & Provider 어댑터 | [`web/src/lib/llm/router.ts`](file:///Users/6_month/sk-project/web/src/lib/llm/router.ts) | **구현 완료** | modelProvider별 라우팅 및 환경변수 보안 검증, 에러 마스킹 구현 완료 (OpenAI 어댑터 포함) |
+| | Agent Orchestrator & Agents | [`web/src/lib/agents/`](file:///Users/6_month/sk-project/web/src/lib/agents) | **구현 완료** | Classification, Answer, Refund 3대 Agent 및 조율기 수록 완료 |
+| | Trace API 및 모니터링 콘솔 | [`web/src/app/api/admin/traces/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/admin/traces/route.ts), `/admin/agent-traces` | **구현 완료** | Timeline HTML 모니터링 뷰어 탑재 완료. (개발 모드 혹은 `ADMIN_TRACE_VIEWER_ENABLED=true` 환경에서만 접근이 허용되는 403 Forbidden 보안 가드 이식 완료) |
+
 

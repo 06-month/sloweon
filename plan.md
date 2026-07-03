@@ -112,6 +112,37 @@
   - [x] 타입체크 및 빌드 검증 (`npm run typecheck --prefix web` 및 `npm run build --prefix web`)
 - 검증 방법: 타입체크/빌드 성공 여부 검사, API Key 비노출 및 unavailable 지정 에러 응답 매칭 검토.
 
+### 1.0.6 챗봇 MVP2 Multi-Agent Orchestration 설계 및 구현 (2026-07-03)
+
+- 작업 목표: Classification Agent, Answer Agent, Refund Decision Agent 3개 에이전트 구조의 명시적 Orchestrator와 Trace 모니터링 뷰어를 구현한다.
+- 구현 범위:
+  - 3개 Agent 모듈 및 프롬프트 정의:
+    - `web/src/lib/agents/prompts.ts` (프롬프트 템플릿 통합 관리)
+    - `web/src/lib/agents/classificationAgent.ts` (의도 분류)
+    - `web/src/lib/agents/answerAgent.ts` (고객 선택 LLM 자연어 답변)
+    - `web/src/lib/agents/refundDecisionAgent.ts` (환불 차단 및 조력)
+  - Orchestrator 및 Trace 모듈 구현:
+    - `web/src/lib/agents/orchestrator.ts` (순차 에이전트 라우팅 및 SK A.X 모드 분기)
+    - `web/src/lib/agents/trace.ts` (개인정보 마스킹 및 메모리 상의 Trace 이력 관리)
+  - API Route Handler (`web/src/app/api/chat/route.ts`) 갱신: Orchestrator와 연동해 다중 에이전트 흐름 연계
+  - Trace HTML Viewer 페이지 구현:
+    - 파일 경로: [`web/src/app/admin/agent-traces/page.tsx`](file:///Users/6_month/sk-project/web/src/app/admin/agent-traces/page.tsx)
+    - 브라우저 접근 경로: `/admin/agent-traces` (ADMIN_TRACE_VIEWER_ENABLED=true 또는 개발모드에서만 허용 가드 적용)
+  - 설계 문서 갱신: [`docs/shopping-mall-chatbot-rag-agent.md`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md)에 Agent 명세 표 및 403 Forbidden 보안 가드 정책 추가.
+  - SK A.X 모드 환경변수 지원: `AGENT_MODEL_MODE` (normal | sk_only | sk_classification_test) 이식.
+- 제외 범위: 실제 Trace DB 영구 테이블 마이그레이션(메모리 캐시로 대체), pgvector RAG 동기화 파이프라인 실코드.
+- 관련 요구사항 ID: FE-011, NF-013, C-021.
+- 주요 화면 또는 모듈: Agent Orchestrator, Trace Viewer page, admin page.
+- 구현 단계별 체크리스트:
+  - [x] 에이전트별 prompt 및 모듈 정의 (`web/src/lib/agents/` 내 prompts, classification, answer, refund)
+  - [x] Trace 구조체 정의 및 수집기 구현 (`web/src/lib/agents/trace.ts` 메모리 기반 수집 및 개인정보 마스킹)
+  - [x] Orchestrator 작성 (`web/src/lib/agents/orchestrator.ts` 및 `AGENT_MODEL_MODE` 바인딩)
+  - [x] API Route Handler `/api/chat` 과 Orchestrator 흐름 통합
+  - [x] Trace HTML Viewer 생성 (`web/src/app/admin/agent-traces/page.tsx` 마운트)
+  - [x] 아키텍처 문서 [`docs/shopping-mall-chatbot-rag-agent.md`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md) 갱신
+  - [x] 타입체크 및 빌드 검증 (`npm run typecheck --prefix web` 및 `npm run build --prefix web`)
+- 검증 방법: 로컬 빌드 성공 검사, admin/agent-traces 페이지 접속 가능성 검증, mock data 생성 및 trace timelines 렌더링 확인.
+
 ### 1.1 Image Worker 1 하의 이미지 생성 작업 목표 (2026-07-03)
 
 - 작업 목표: 요청된 하의 누락 이미지 4개를 생성한다.

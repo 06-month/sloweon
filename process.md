@@ -1,6 +1,30 @@
 # 구현 진행 기록
 
-## 2026-07-03 - OpenAI Provider 선택 기능 추가 완료
+## 2026-07-03 - 챗봇 MVP2 Multi-Agent Orchestration 설계 및 구현 완료
+
+### 작업 목표
+Classification Agent, Answer Agent, Refund Decision Agent 3개 에이전트 구조의 명시적 Orchestrator와 Trace 모니터링 뷰어를 구현한다.
+
+### 읽은 문서와 확인한 요구사항
+- MVP2 추가 요구사항: 3개 Agent 구조 명확화, RAG/Tool 매핑, SK A.X 모델 전용 분기 모드, Agent Trace 저장 및 마스킹, HTML Trace Timeline Viewer 구현.
+- `docs/shopping-mall-chatbot-rag-agent.md`: 아키텍처 내 에이전트 상세 명세 매트릭스 표 갱신 완료.
+
+### 구현한 변경 사항
+- **프롬프트 통합화**: [`web/src/lib/agents/prompts.ts`](file:///Users/6_month/sk-project/web/src/lib/agents/prompts.ts) 생성.
+- **의도 분류 에이전트 구현**: [`web/src/lib/agents/classificationAgent.ts`](file:///Users/6_month/sk-project/web/src/lib/agents/classificationAgent.ts) 생성.
+- **자연어 답변 에이전트 구현**: [`web/src/lib/agents/answerAgent.ts`](file:///Users/6_month/sk-project/web/src/lib/agents/answerAgent.ts) 생성.
+- **환불 판단 조력 에이전트 구현**: [`web/src/lib/agents/refundDecisionAgent.ts`](file:///Users/6_month/sk-project/web/src/lib/agents/refundDecisionAgent.ts) 생성 (자동 환불 직접 기동 차단 가드레일 내장).
+- **오케스트레이터 및 모드 분기 구현**: [`web/src/lib/agents/orchestrator.ts`](file:///Users/6_month/sk-project/web/src/lib/agents/orchestrator.ts) 생성. `AGENT_MODEL_MODE` (normal | sk_only | sk_classification_test) 지원.
+- **Trace 모듈 및 마스킹**: [`web/src/lib/agents/trace.ts`](file:///Users/6_month/sk-project/web/src/lib/agents/trace.ts) 생성 (개인정보 자동 마스킹 필터링 기능 내장).
+- **디버그 API 엔드포인트**: [`web/src/app/api/admin/traces/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/admin/traces/route.ts) 생성 (ADMIN_TRACE_VIEWER_ENABLED=true 혹은 개발 환경이 아닐 시 403 Forbidden 차단 가드 탑재).
+- **HTML Trace Timeline Viewer**: [`web/src/app/admin/agent-traces/page.tsx`](file:///Users/6_month/sk-project/web/src/app/admin/agent-traces/page.tsx) 생성 (브라우저 주소 `/admin/agent-traces` 매핑, 403 에러 발생 시 Access Restrained UI 렌더링).
+- **API Handler 통합**: [`web/src/app/api/chat/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/chat/route.ts)를 확장해 오케스트레이터 연동.
+
+### 빌드 및 검증 결과
+- `npm run typecheck --prefix web`: 타입 체크 통과 (성공).
+- `npm run build --prefix web`: 빌드 및 번들 최적화 완료 (성공).
+
+---
 
 ### 작업 목표
 챗봇에 OpenAI(gpt-4o-mini 고정) Provider 선택 옵션을 추가하고 라우터/어댑터를 구현한다.
