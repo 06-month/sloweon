@@ -1,3 +1,5 @@
+import type { ProductFactPack } from "./productFacts";
+
 export interface RagTraceSource {
   sourceType: string;
   sourceId: string;
@@ -5,6 +7,8 @@ export interface RagTraceSource {
   score: number;
   contentPreview: string;
   usedByAgent: string;
+  reason?: string;
+  productId?: string | null;
 }
 
 export interface ProductSearchTraceMeta {
@@ -13,6 +17,11 @@ export interface ProductSearchTraceMeta {
   productSearchFilters: Record<string, unknown>;
   toolResultsCount: number;
   ragResultsCount: number;
+  rawRagResultsCount?: number;
+  groupedRagResultsCount?: number;
+  droppedLowScoreCount?: number;
+  deduplicatedCount?: number;
+  productGroupingCollapsedCount?: number;
   productCandidatesCount: number;
   searchProductsCalled: boolean;
 }
@@ -39,6 +48,15 @@ export interface AgentTrace {
     success: boolean;
   }>;
   ragSources?: RagTraceSource[];
+  ragSourcesUsed?: RagTraceSource[];
+  rejectedRagSources?: RagTraceSource[];
+  lowScoreRagSources?: RagTraceSource[];
+  productFactPacks?: ProductFactPack[];
+  dbFactsUsed?: string[];
+  groundingWarnings?: string[];
+  answerUsedDbFacts?: boolean;
+  answerUsedRag?: boolean;
+  hallucinationGuardTriggered?: boolean;
   productSearchMeta?: ProductSearchTraceMeta;
   finalAnswer: string;
   guardrailActions?: {
@@ -89,6 +107,8 @@ export function toRagTraceSources(
     title: string;
     score: number;
     contentPreview: string;
+    reason?: string;
+    productId?: string | null;
   }>,
   usedByAgent: string
 ): RagTraceSource[] {
@@ -99,19 +119,43 @@ export function toRagTraceSources(
     score: item.score,
     contentPreview: maskSensitiveData(item.contentPreview),
     usedByAgent,
+    reason: item.reason,
+    productId: item.productId,
   }));
 }
 
 export function addTrace(trace: AgentTrace) {
+  const maskRagSource = (r: RagTraceSource): RagTraceSource => ({
+    ...r,
+    contentPreview: maskSensitiveData(r.contentPreview),
+    title: maskSensitiveData(r.title),
+  });
+
   const sanitizedTrace: AgentTrace = {
     ...trace,
     userMessage: maskSensitiveData(trace.userMessage),
     finalAnswer: maskSensitiveData(trace.finalAnswer),
     error: trace.error ? maskSensitiveData(trace.error) : null,
-    ragSources: trace.ragSources?.map((r) => ({
-      ...r,
-      contentPreview: maskSensitiveData(r.contentPreview),
-      title: maskSensitiveData(r.title),
+    ragSources: trace.ragSources?.map(maskRagSource),
+    ragSourcesUsed: trace.ragSourcesUsed?.map(maskRagSource),
+    rejectedRagSources: trace.rejectedRagSources?.map(maskRagSource),
+    lowScoreRagSources: trace.lowScoreRagSources?.map(maskRagSource),
+    productFactPacks: trace.productFactPacks?.map((pack) => ({
+      ...pack,
+      name: maskSensitiveData(pack.name),
+      koreanName: maskSensitiveData(pack.koreanName),
+      description: maskSensitiveData(pack.description),
+      ragEvidenceTitles: pack.ragEvidenceTitles.map(maskSensitiveData),
+      ragEvidencePreview: pack.ragEvidencePreview.map(maskSensitiveData),
+      modelFit: pack.modelFit
+        ? {
+            ...pack.modelFit,
+            fitComment: maskSensitiveData(pack.modelFit.fitComment),
+          }
+        : pack.modelFit,
+      reviewFitSummary: pack.reviewFitSummary
+        ? maskSensitiveData(pack.reviewFitSummary)
+        : pack.reviewFitSummary,
     })),
   };
 

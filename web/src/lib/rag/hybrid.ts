@@ -9,7 +9,11 @@ import {
   normalizeShoppingQuery,
   type NormalizedShoppingQuery,
 } from "./queryNormalizer";
-import { retrieveProductContext, type RagContextItem } from "./retriever";
+import {
+  retrieveProductContextDetailed,
+  type RagContextItem,
+  type RagRetrievalDiagnostics,
+} from "./retriever";
 import type { ProductCandidate } from "@/lib/agents/productAnswer";
 
 export interface HybridProductResult {
@@ -17,6 +21,7 @@ export interface HybridProductResult {
     Awaited<ReturnType<typeof searchProducts>>["products"]
   >;
   ragContext: RagContextItem[];
+  ragDiagnostics: RagRetrievalDiagnostics;
   normalized: NormalizedShoppingQuery;
   filters: SearchProductsParams;
 }
@@ -38,12 +43,18 @@ export async function runHybridProductRetrieval(
 
   const [dbResult, ragContext] = await Promise.all([
     searchProducts(filters),
-    retrieveProductContext(normalized.expandedQuery, { topK: 5 }),
+    retrieveProductContextDetailed(normalized.expandedQuery),
   ]);
 
   const dbProducts = dbResult.products || [];
 
-  return { dbProducts, ragContext, normalized, filters };
+  return {
+    dbProducts,
+    ragContext: ragContext.items,
+    ragDiagnostics: ragContext.diagnostics,
+    normalized,
+    filters,
+  };
 }
 
 export function dbProductsToCandidates(

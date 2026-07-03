@@ -2,11 +2,10 @@ import { routeLLMRequest } from "../llm/router";
 import { buildAnswerPromptWithContext } from "./prompts";
 import type { RagContextItem } from "../rag/retriever";
 import {
-  extractProductsFromRag,
-  formatProductListAnswer,
-  isUnhelpfulProductResponse,
+  formatProductFactPackAnswer,
   type ProductCandidate,
 } from "./productAnswer";
+import type { ProductFactPack } from "./productFacts";
 
 export interface AnswerOutput {
   content: string;
@@ -20,6 +19,9 @@ export interface AnswerOutput {
   modelUsed?: string;
   fallbackUsed?: boolean;
   fallbackReason?: string | null;
+  answerUsedDbFacts?: boolean;
+  answerUsedRag?: boolean;
+  hallucinationGuardTriggered?: boolean;
 }
 
 export interface AnswerAgentInput {
@@ -30,6 +32,7 @@ export interface AnswerAgentInput {
   ragContext: RagContextItem[];
   toolResults: AnswerOutput["calledTools"];
   productCandidates?: ProductCandidate[];
+  productFactPacks?: ProductFactPack[];
 }
 
 function summarizeToolResults(
@@ -39,28 +42,6 @@ function summarizeToolResults(
   return tools
     .map((t) => `${t.toolName}: ${t.outputSummary}`)
     .join("\n");
-}
-
-function hasProductEvidence(
-  candidates: ProductCandidate[],
-  ragContext: RagContextItem[]
-): boolean {
-  if (candidates.length > 0) return true;
-  return ragContext.some((r) =>
-    ["product", "product_detail", "size_guide"].includes(r.sourceType)
-  );
-}
-
-function mergeProductCandidates(
-  dbCandidates: ProductCandidate[],
-  ragContext: RagContextItem[]
-): ProductCandidate[] {
-  const merged = new Map<string, ProductCandidate>();
-  for (const p of dbCandidates) merged.set(p.id, p);
-  for (const p of extractProductsFromRag(ragContext)) {
-    if (!merged.has(p.id)) merged.set(p.id, p);
-  }
-  return Array.from(merged.values());
 }
 
 function buildProductIntro(category: string, userMessage: string): string {
@@ -74,6 +55,18 @@ function buildProductIntro(category: string, userMessage: string): string {
   return "현재 SLOWEON에서 확인 가능한 상품은 아래와 같습니다.";
 }
 
+function hasPolicyEvidence(category: string, ragContext: RagContextItem[]) {
+  if (category === "delivery") {
+    return ragContext.some((item) => item.sourceType === "shipping_policy");
+  }
+  if (category === "refund") {
+    return ragContext.some((item) =>
+      ["refund_policy", "return_policy"].includes(item.sourceType)
+    );
+  }
+  return true;
+}
+
 export async function runAnswerAgent(
   input: AnswerAgentInput
 ): Promise<AnswerOutput> {
@@ -85,79 +78,53 @@ export async function runAnswerAgent(
     ragContext,
     toolResults,
     productCandidates = [],
+    productFactPacks = [],
   } = input;
 
-  const mergedProducts = mergeProductCandidates(
-    productCandidates,
-    ragContext
-  );
-
-  // Deterministic product answer when we have DB/RAG evidence
-  if (category === "product" && mergedProducts.length > 0) {
+  if (category === "product" && productFactPacks.length > 0) {
     const userMessage = messages[messages.length - 1]?.content || "";
-    const structuredAnswer = formatProductListAnswer(
-      mergedProducts,
-      buildProductIntro(category, userMessage)
-    );
-
-    const targetProvider = modelMode === "sk_only" ? "sk_ax" : selectedProvider;
-    const systemPrompt = buildAnswerPromptWithContext({
-      ragContext: ragContext.map((r) => ({
-        sourceType: r.sourceType,
-        title: r.title,
-        contentPreview: r.contentPreview,
-        score: r.score,
-      })),
-      toolResults: summarizeToolResults(toolResults),
-      category,
-      productCandidates: mergedProducts,
-    });
-
-    try {
-      const response = await routeLLMRequest(targetProvider, {
-        systemPrompt,
-        messages,
-      });
-
-      if (
-        response.errorCode ||
-        isUnhelpfulProductResponse(response.content)
-      ) {
-        return {
-          content: structuredAnswer,
-          calledTools: toolResults,
-          errorCode: response.errorCode,
-          modelUsed: response.modelUsed,
-          fallbackUsed: true,
-          fallbackReason: response.errorCode
-            ? "LLM_ERROR_WITH_PRODUCT_DATA"
-            : "UNHELPFUL_LLM_RESPONSE",
-        };
-      }
-
-      return {
-        content: response.content,
-        calledTools: toolResults,
-        modelUsed: response.modelUsed,
-      };
-    } catch {
-      return {
-        content: structuredAnswer,
-        calledTools: toolResults,
-        fallbackUsed: true,
-        fallbackReason: "ANSWER_AGENT_ERROR_WITH_PRODUCT_DATA",
-      };
-    }
+    return {
+      content: formatProductFactPackAnswer(
+        productFactPacks,
+        buildProductIntro(category, userMessage)
+      ),
+      calledTools: toolResults,
+      modelUsed: "deterministic-product-facts",
+      answerUsedDbFacts: true,
+      answerUsedRag: productFactPacks.some(
+        (pack) => pack.ragEvidenceTitles.length > 0
+      ),
+      hallucinationGuardTriggered: false,
+    };
   }
 
-  // Product category but no results at all
-  if (category === "product" && !hasProductEvidence(mergedProducts, ragContext)) {
+  if (category === "product") {
+    const hasDbCandidates = productCandidates.length > 0;
     return {
-      content:
-        "현재 조건에 맞는 판매 중인 상품을 찾지 못했습니다. 색상, 가격대, 핏(예: 와이드/릴랙스)을 조금 더 구체적으로 말씀해 주시면 다시 찾아드리겠습니다.",
+      content: hasDbCandidates
+        ? "판매 중인 상품 후보는 찾았지만 답변에 필요한 상품 근거 묶음을 만들지 못했습니다. 색상, 가격대, 핏 조건을 조금 더 좁혀 다시 문의해 주세요."
+        : "현재 조건에 맞는 판매 중인 상품을 찾지 못했습니다. 색상, 가격대, 핏(예: 와이드/릴랙스)을 조금 더 구체적으로 말씀해 주시면 다시 찾아드리겠습니다.",
       calledTools: toolResults,
       fallbackUsed: true,
-      fallbackReason: "NO_PRODUCT_EVIDENCE",
+      fallbackReason: hasDbCandidates
+        ? "PRODUCT_FACT_PACK_EMPTY"
+        : "NO_DB_PRODUCT_CANDIDATES",
+      answerUsedDbFacts: hasDbCandidates,
+      answerUsedRag: false,
+      hallucinationGuardTriggered: true,
+    };
+  }
+
+  if (!hasPolicyEvidence(category, ragContext)) {
+    return {
+      content:
+        "현재 확인 가능한 SLOWEON 정책 근거가 부족해 확답드리기 어렵습니다. 주문 상태나 문의 유형을 조금 더 구체적으로 알려주시거나 마이페이지(/mypage) 또는 1:1 문의를 이용해 주세요.",
+      calledTools: toolResults,
+      fallbackUsed: true,
+      fallbackReason: "NO_POLICY_RAG_EVIDENCE",
+      answerUsedDbFacts: false,
+      answerUsedRag: false,
+      hallucinationGuardTriggered: true,
     };
   }
 
@@ -172,6 +139,8 @@ export async function runAnswerAgent(
     })),
     toolResults: summarizeToolResults(toolResults),
     category,
+    productCandidates,
+    productFactPacks,
   });
 
   try {
@@ -185,6 +154,9 @@ export async function runAnswerAgent(
       calledTools: toolResults,
       errorCode: response.errorCode,
       modelUsed: response.modelUsed,
+      answerUsedDbFacts: toolResults.length > 0,
+      answerUsedRag: ragContext.length > 0,
+      hallucinationGuardTriggered: false,
     };
   } catch {
     return {
@@ -194,6 +166,9 @@ export async function runAnswerAgent(
       errorCode: "ANSWER_AGENT_ERROR",
       fallbackUsed: true,
       fallbackReason: "ANSWER_AGENT_ERROR",
+      answerUsedDbFacts: toolResults.length > 0,
+      answerUsedRag: ragContext.length > 0,
+      hallucinationGuardTriggered: true,
     };
   }
 }

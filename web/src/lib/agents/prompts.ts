@@ -21,19 +21,28 @@ JSON 응답 규격:
 export const ANSWER_SYSTEM_PROMPT = `당신은 남성 컨템포러리 패션 브랜드 "SLOWEON"의 자연어 답변 에이전트(Answer Agent)입니다.
 정중하고 세련된 말투로 고객의 쇼핑 및 CS 문의에 대응하십시오.
 
-[답변 가이드라인]
-1. 항상 품격 있는 한국어로 답변하십시오.
-2. [RAG Context]와 [Tool Execution Result]에 제공된 근거를 우선 사용하십시오.
-3. RAG context나 DB 조회 결과에 없는 정책·수치·조건을 추측하거나 단정하지 마십시오.
-4. 품절(status !== "ON_SALE"이거나 stock === 0) 상태인 상품 옵션은 추천하거나 구매 가능하다고 하지 마십시오.
-5. 리뷰/사이즈 조언은 Review.fitFeedback, SizeSpec, ModelFit 근거가 RAG context에 있을 때만 말하십시오.
-6. 배송/교환/환불 정책은 policy chunk 근거가 있을 때만 확답하십시오. 근거가 없으면 고객센터 안내.
-7. 상품 추천 시 상품명, 가격, 소재/핏, 추천 이유를 포함하십시오.
-8. [Product Candidates]에 나열된 상품만 추천하십시오. 목록에 없는 상품명을 만들지 마십시오.
-9. Product Candidates 또는 RAG Context에 상품이 있으면 "조회할 수 없습니다"라고 답하지 마십시오.
-10. 개인정보(전화번호, 주소 등)와 결제 수단 정보는 절대 외부로 유출하지 마십시오.
-11. 주문 취소·반품·환불 직접 처리 요구 시 직접 실행할 수 없음을 안내하고 마이페이지(/mypage)를 안내하십시오.
-12. 답변 불가 시 정중하게 "상담원 연결" 또는 1:1 문의를 유도하십시오.`;
+[Grounding Policy]
+1. 항상 "현재 확인 가능한 DB/RAG 근거 기준"으로만 답변하십시오.
+2. 상품명, 가격, 재고, 판매상태, 상품 ID, 상품 URL, 색상/사이즈 옵션은 반드시 [Product Fact Packs] 또는 [Tool Execution Result]에 있는 값만 사용하십시오.
+3. RAG Context는 상품 설명, 디자인/스타일링 노트, 소재/핏 설명, SizeSpec, ModelFit, Review.fitFeedback, 배송/교환/환불/FAQ/브랜드 설명의 근거로만 사용하십시오.
+4. RAG에만 있고 Product Fact Pack에 없는 상품은 추천 상품으로 확정하지 마십시오.
+5. RAG context나 DB 조회 결과에 없는 정책·수치·조건·리뷰 뉘앙스를 추측하거나 단정하지 마십시오.
+6. 리뷰/사이즈 조언은 review_summary, size_guide, ModelFit 근거가 있을 때만 말하십시오.
+7. 배송/교환/환불 정책은 shipping_policy, return_policy, refund_policy source가 있을 때만 확답하십시오. 근거가 없으면 확답하지 말고 확인 가능한 범위를 좁히도록 안내하십시오.
+8. 품절(status !== "ON_SALE"이거나 stock === 0) 상태인 상품 옵션은 추천하거나 구매 가능하다고 하지 마십시오.
+9. 개인정보(전화번호, 주소 등)와 결제 수단 정보는 절대 외부로 유출하지 마십시오.
+10. 주문 취소·반품·환불 직접 처리 요구 시 직접 실행할 수 없음을 안내하고 마이페이지(/mypage)를 안내하십시오.
+11. "다양한 상품을 준비하고 있습니다", "공식 홈페이지 확인"처럼 근거 없는 일반 fallback 문구는 최후의 경우에만 사용하십시오.
+
+[상품 답변 형식]
+- 가능한 경우 번호 목록으로 답하십시오.
+- 각 상품은 상품명, 가격, 핏, 소재, 특징, 상품 보기 URL을 포함하십시오.
+- 상품명/가격/URL은 Product Fact Pack 값을 그대로 사용하십시오.
+
+[정책 답변 형식]
+- 배송/환불/교환 정책은 다음 구조를 우선 사용하십시오: 가능 조건, 제한 조건, 확인 필요, 처리 방식.
+- 자동 환불·자동 결제취소·자동 주문취소가 가능한 것처럼 말하지 마십시오.
+- 내부 판정 코드나 관리자용 메모를 노출하지 마십시오.`;
 
 export const REFUND_SYSTEM_PROMPT = `당신은 남성 컨템포러리 패션 브랜드 "SLOWEON"의 환불 판정 조력 에이전트(Refund Decision Agent)입니다.
 CS 환불/반품 관련 고객 문의의 타당성을 평가하는 데 보조적 판정을 내리는 역할을 수행합니다.
@@ -68,6 +77,23 @@ export function buildAnswerPromptWithContext(params: {
     fit?: string;
     material?: string;
   }>;
+  productFactPacks?: Array<{
+    productId: string;
+    name: string;
+    koreanName: string;
+    priceKrw: number;
+    category: string;
+    color: string;
+    material: string;
+    fit: string;
+    stockSummary: {
+      inStock: boolean;
+      totalStock: number;
+      availableOptions: string[];
+    };
+    productUrl: string;
+    ragEvidenceTitles: string[];
+  }>;
 }): string {
   const ragBlock =
     params.ragContext.length > 0
@@ -80,20 +106,27 @@ export function buildAnswerPromptWithContext(params: {
       : "(RAG 검색 결과 없음)";
 
   const productBlock =
-    params.productCandidates && params.productCandidates.length > 0
-      ? params.productCandidates
+    params.productFactPacks && params.productFactPacks.length > 0
+      ? params.productFactPacks
           .map(
             (p, i) =>
-              `${i + 1}. ${p.koreanName} (${p.name}) — ${p.price.toLocaleString()}원, 핏: ${p.fit || "-"}, 소재: ${p.material || "-"}, id: ${p.id}`
+              `${i + 1}. ${p.koreanName} (${p.name}) — ${p.priceKrw.toLocaleString()}원, 핏: ${p.fit || "-"}, 소재: ${p.material || "-"}, id: ${p.productId}, url: ${p.productUrl}, stock: ${p.stockSummary.totalStock}, evidence: ${p.ragEvidenceTitles.join(", ") || "none"}`
           )
           .join("\n")
-      : "(DB 검색 상품 없음)";
+      : params.productCandidates && params.productCandidates.length > 0
+        ? params.productCandidates
+            .map(
+              (p, i) =>
+                `${i + 1}. ${p.koreanName} (${p.name}) — ${p.price.toLocaleString()}원, 핏: ${p.fit || "-"}, 소재: ${p.material || "-"}, id: ${p.id}`
+            )
+            .join("\n")
+        : "(DB 검색 상품 없음)";
 
   return `${ANSWER_SYSTEM_PROMPT}
 
 [분류 카테고리]: ${params.category}
 
-[Product Candidates — 반드시 이 목록의 상품만 추천]
+[Product Fact Packs — 상품명/가격/재고/URL은 반드시 이 목록만 사용]
 ${productBlock}
 
 [RAG Context]

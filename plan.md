@@ -196,6 +196,75 @@
 - 검증 방법: typecheck, build, rag:sync (DB 연결 시), rag-health API 응답 확인
 - 리스크: pgvector 미설치 DB에서는 RAG retrieval 빈 배열 fallback; embedding API 키 없으면 sync/retrieval 실패
 
+### 1.0.9 챗봇 RAG Sync API (Vercel 원격 적재) (2026-07-03)
+
+- 작업 목표: Vercel 배포 환경에서 로컬 CLI 없이 RAG chunk를 적재할 수 있는 관리자 전용 API 추가
+- 구현 범위:
+  - `web/src/lib/rag/sync.ts` — `syncRagChunks()` 공유 모듈
+  - `web/src/app/api/admin/rag-sync/route.ts` — POST + Bearer `RAG_SYNC_SECRET`, `maxDuration=60`
+  - `web/scripts/sync-vectors.ts` — CLI entrypoint, `syncRagChunks()` 호출
+  - `.env.example`, docs, plan, process 갱신
+- 제외 범위: background job / cron worker
+- 구현 단계별 체크리스트:
+  - [x] sync.ts 리팩토링
+  - [x] rag-sync API Route
+  - [x] 문서 및 env 예시
+  - [x] typecheck/build 검증
+- 리스크: Vercel 60초 타임아웃 내 전체 sync 미완료 가능
+
+### 1.0.10 MVP4 RAG Answer Accuracy & Grounding + Toss 결제 버튼 통합 (2026-07-03)
+
+- 작업 목표: 챗봇 답변에서 상품명/가격/재고/URL은 DB/ProductTools 기준으로 고정하고, RAG는 상품 설명·사이즈·리뷰·정책 근거로만 쓰도록 개선한다. 주문서의 카드결제/간편결제/계좌이체 UI는 Toss Payments 통합 결제창 단일 버튼 흐름으로 정리한다.
+- 구현 범위:
+  - RAG retrieval sourceType별 topK/threshold 정책 및 low-score reject/dedup/grouping trace 추가
+  - ProductFactPack 표준 구조 생성 및 Answer Agent 입력/프롬프트/결정적 상품 답변 형식 개선
+  - Trace Viewer에 Input → Classification → Query Normalization → DB Product Search → RAG Retrieval → Evidence Grouping → ProductFactPack → Answer Agent → Final Answer 흐름 표시
+  - `/api/admin/rag-health`에 threshold 설정, sourceType별 sample similarity, productId 매칭 sample, embedding dimension mismatch, 최근 sync 요약 추가
+  - 주문서 결제수단 3분할 라디오를 Toss 통합 결제창 단일 CTA로 정리
+  - `docs/shopping-mall-chatbot-rag-agent.md`, `.env.example`, `process.md` 갱신 및 RAG 품질 테스트 체크리스트 추가
+- 제외 범위:
+  - 기존 MVP1~MVP3 아키텍처 전면 재작성
+  - 자동 환불, 자동 결제취소, 자동 주문취소 기능 추가
+  - RAG schema migration 변경, BM25/rerank/Trace DB 영구 저장
+  - Toss Payments confirm flow/order 생성/성공·실패 callback 구조 변경
+- 관련 요구사항 ID: FE-011, NF-013, C-021, P-001~P-006, PD-002~PD-010, O-003~O-007, D-001~D-006
+- 주요 화면 또는 모듈:
+  - `web/src/lib/agents/orchestrator.ts`, `answerAgent.ts`, `prompts.ts`, `productAnswer.ts`, `trace.ts`
+  - `web/src/lib/rag/retriever.ts`, `hybrid.ts`, `constants.ts`, `queryNormalizer.ts`
+  - `web/src/lib/tools/productTools.ts`
+  - `web/src/app/admin/agent-traces/page.tsx`
+  - `web/src/app/api/admin/rag-health/route.ts`
+  - `web/src/components/CheckoutForm.tsx`
+- 데이터 모델 또는 상태 구조:
+  - `ProductFactPack`: `productId`, `name`, `koreanName`, `priceKrw`, `category`, `color`, `material`, `fit`, `stockSummary`, `productUrl`, `sizeSpecs`, `modelFit`, `reviewFitSummary`, `ragEvidenceTitles`, `ragEvidencePreview`
+  - `RagRetrievalDiagnostics`: raw/grouped/rejected/deduplicated count, lowScore sources, rejected sources, grounding warnings
+  - Trace grounding flags: `answerUsedDbFacts`, `answerUsedRag`, `hallucinationGuardTriggered`, `fallbackReason`
+- 구현 단계별 체크리스트:
+  - [x] 필수 제품 문서와 현재 MVP1~MVP3 챗봇/결제 코드 흐름 확인
+  - [x] `plan.md`/`process.md` 작업 범위 및 초기 진단 기록
+  - [x] RAG constants/retriever/hybrid에 sourceType별 정책, threshold, grouping/dedup 진단 추가
+  - [x] ProductFactPack 생성 및 DB facts/RAG evidence 매칭 규칙 구현
+  - [x] Answer Agent prompt와 상품/정책 답변 fallback 형식 강화
+  - [x] Trace 타입과 `/admin/agent-traces` 화면 확장
+  - [x] `/api/admin/rag-health` 확장
+  - [x] 주문서 Toss Payments 결제 버튼 단일화
+  - [x] RAG 품질 테스트 케이스 문서 또는 스크립트 추가
+  - [x] 문서(`docs/shopping-mall-chatbot-rag-agent.md`, `.env.example`, `process.md`) 갱신
+  - [x] `npm run typecheck --prefix web`, `npm run build --prefix web` 실행
+- 검증 방법:
+  - 타입체크/빌드 통과 확인
+  - 가능한 경우 RAG health API 응답 구조 확인
+  - 테스트 질문 10개 기준으로 category, DB tool 호출, RAG source 사용, 가격/상품명 정확성, 자동 환불/주문취소 차단 여부를 체크
+  - 주문서 화면에서 결제 버튼이 하나만 보이며 Toss 통합 결제창 호출 파라미터가 유지되는지 코드 및 가능한 브라우저 테스트로 확인
+- 리스크와 대응:
+  - RAG source metadata가 productId를 누락할 수 있음 → DB productId 매칭 실패 시 추천 후보에서 제외하고 참고 근거로만 표시
+  - RAG similarity threshold를 높이면 recall 저하 가능 → sourceType별 threshold를 상수/환경변수로 조정 가능하게 유지
+  - LLM이 ProductFactPack 밖 상품을 언급할 수 있음 → 상품 질문은 가능한 결정적 formatter를 우선 사용하고 fallback reason을 trace에 남김
+  - 결제 UI 변경이 order/payment 로직에 영향을 줄 수 있음 → SDK 호출부의 orderId, amount, orderName, success/fail URL은 유지
+- 미정 사항:
+  - 운영 threshold 최적값은 실제 사용자 질의/trace 누적 후 튜닝 필요
+  - 리뷰 데이터가 실제 DB/RAG에 부족한 경우 리뷰 기반 추천은 근거 부족 안내로 제한
+
 ### 1.1 Image Worker 1 하의 이미지 생성 작업 목표 (2026-07-03)
 
 - 작업 목표: 요청된 하의 누락 이미지 4개를 생성한다.

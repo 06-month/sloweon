@@ -486,6 +486,7 @@ web/
 | | Retrieval & Hybrid | `web/src/lib/rag/retriever.ts`, `hybrid.ts` | **구현 완료** | DB filter + pgvector semantic search |
 | | Orchestrator RAG 연동 | `web/src/lib/agents/orchestrator.ts` | **구현 완료** | category별 RAG + productTools |
 | | RAG Health API | `/api/admin/rag-health` | **구현 완료** | pgvector/chunk stats/sample retrieval |
+| | RAG Sync API (Vercel) | `/api/admin/rag-sync` | **구현 완료** | Bearer `RAG_SYNC_SECRET`, `syncRagChunks()` 공유 |
 | **미구현** | BM25 Sparse Search | — | **미구현** | PostgreSQL FTS + RRF 융합 |
 | | Cohere Rerank | — | **미구현** | Top-20 후보 재정렬 |
 | | 대화 기록/세션 DB | `web/prisma/schema.prisma` | **미구현** | ChatSession, ChatMessage |
@@ -522,10 +523,18 @@ web/
    psql $DATABASE_URL -f web/prisma/migrations/rag_pgvector_setup.sql
    ```
 2. `.env`에 `OPENAI_API_KEY` (또는 `GEMINI_API_KEY`) 및 `EMBEDDING_PROVIDER` 설정
-3. 벡터 인덱싱:
+3. 벡터 인덱싱 (로컬 CLI):
    ```bash
    npm run rag:sync --prefix web
    ```
+4. 벡터 인덱싱 (Vercel 배포 환경 — 권장):
+   ```bash
+   curl -X POST https://your-app.vercel.app/api/admin/rag-sync \
+     -H "Authorization: Bearer $RAG_SYNC_SECRET"
+   ```
+   - Vercel Environment Variables에 `RAG_SYNC_SECRET`, `DATABASE_URL`, `OPENAI_API_KEY`(또는 `GEMINI_API_KEY`), `EMBEDDING_PROVIDER` 설정 필요
+   - `maxDuration = 60` — 상품 40개 기준 embedding 호출이 많아 **타임아웃(60초) 초과 가능**
+   - 운영 단계에서는 Vercel Cron + Background Job 또는 별도 worker로 분리 권장
 
 ### 14.2 retriever.ts 사용 방식
 
@@ -577,15 +586,156 @@ RAG source 필드: `sourceType`, `sourceId`, `title`, `score`, `contentPreview`(
 - 접근: `NODE_ENV=development` 또는 `ADMIN_TRACE_VIEWER_ENABLED=true`
 - 응답: pgvectorExtension, totalChunks, chunksBySourceType, embeddingDimension, lastSyncTime, sampleRetrievalOk
 
-### 14.7 미구현 기능 및 리스크
+### 14.7 /api/admin/rag-sync (Vercel 원격 적재)
 
-**미구현**: BM25 sparse search, Cohere rerank, Trace DB 영구 저장, 주문 조회 Tool, 채팅 세션 DB
+- 경로: `POST /api/admin/rag-sync`
+- 인증: `Authorization: Bearer ${RAG_SYNC_SECRET}` (production에서 secret 없거나 불일치 시 403)
+- `maxDuration`: 60초
+- 성공 응답:
+  ```json
+  {
+    "ok": true,
+    "insertedOrUpdated": 120,
+    "sourceTypeCounts": { "product": 40, "product_detail": 40, ... },
+    "durationMs": 12345
+  }
+  ```
+- 실패 응답:
+  ```json
+  {
+    "ok": false,
+    "error": "RAG_SYNC_FAILED",
+    "message": "RAG sync failed. Check server logs."
+  }
+  ```
+- curl 예시:
+  ```bash
+  curl -X POST https://sloweon.vercel.app/api/admin/rag-sync \
+    -H "Authorization: Bearer your_long_random_secret_here"
+  ```
+- 공유 모듈: `web/src/lib/rag/sync.ts`의 `syncRagChunks()` — CLI(`npm run rag:sync`)와 API Route가 동일 로직 사용
+- **Vercel timeout 리스크**: Hobby/Pro 기본 함수 타임아웃 내 전체 상품 embedding이 완료되지 않을 수 있음. chunk 수 증가 시 background job 전환 권장.
+
+### 14.8 MVP4 Grounded RAG Answer 정책
+
+MVP4의 목표는 RAG가 "검색된다"에서 끝나지 않고, 답변의 상품명/가격/재고/정책이 실제 DB 또는 RAG source에 근거하도록 만드는 것이다.
+
+#### Grounding Policy
+
+| 우선순위 | 출처 | 사용하는 정보 |
+|---:|---|---|
+| 1 | DB/ProductTools | 상품명, 가격, 재고, 판매상태, 상품 ID, 상품 URL, 색상/사이즈 옵션, ProductVariant stock |
+| 2 | RAG Context | 상품 상세 설명, 디자인/스타일링 노트, 소재/핏 설명, SizeSpec, ModelFit, Review.fitFeedback, 배송/교환/환불/FAQ/브랜드 가이드 |
+| 3 | 일반 LLM 지식 | SLOWEON 상품/정책에는 사용 금지에 가깝게 제한. 근거 부족 시 "현재 확인 가능한 정보 기준"으로 범위를 좁혀 안내 |
+
+상품 추천/검색 답변은 `ProductFactPack`에 들어간 상품만 사용한다. RAG에만 있고 DB productId와 매칭되지 않는 상품은 추천 후보가 아니라 `rejectedRagSources`로 trace에 남긴다.
+
+#### ProductFactPack 구조
+
+`web/src/lib/agents/productFacts.ts`
+
+```ts
+{
+  productId,
+  name,
+  koreanName,
+  priceKrw,
+  category,
+  color,
+  material,
+  fit,
+  description,
+  stockSummary: { inStock, totalStock, availableOptions },
+  productUrl,
+  sizeSpecs,
+  modelFit,
+  reviewFitSummary,
+  ragEvidenceTitles,
+  ragEvidencePreview
+}
+```
+
+- 가격/재고/URL은 DB에서만 구성한다.
+- `product`, `product_detail`, `size_guide`, `review_summary` RAG source는 `metadata.productId` 또는 sourceId prefix(`detail_`, `size_`, `review_`)로 DB 상품과 매칭한다.
+- DB 후보에 없거나 품절인 상품은 최종 답변 후보에서 제외한다.
+
+#### Retrieval 정책
+
+`web/src/lib/rag/constants.ts`에서 sourceType별 topK/threshold를 관리한다.
+
+| 환경변수 | 기본값 | 설명 |
+|---|---:|---|
+| `RAG_DEFAULT_TOP_K` | 5 | 일반 RAG 기본 topK |
+| `RAG_PRODUCT_TOP_K` | 8 | 상품 질문 전체 topK |
+| `RAG_POLICY_TOP_K` | 3 | 정책 sourceType별 topK |
+| `RAG_MIN_SIMILARITY` | 0.4 | 일반 최소 similarity |
+| `RAG_PRODUCT_MIN_SIMILARITY` | 0.38 | 상품 source 최소 similarity |
+| `RAG_POLICY_MIN_SIMILARITY` | 0.45 | 정책 source 최소 similarity |
+| `RAG_DIAGNOSTIC_LOW_WATERMARK` | 0.2 | low-score 진단용 하한선 |
+
+질문 유형별 우선 source:
+
+- product: `product`, `product_detail`, `size_guide`, `review_summary`
+- delivery: `shipping_policy`
+- refund: `refund_policy`, `return_policy`
+- other: `faq`, `brand_guide`
+
+#### Trace Viewer
+
+`/admin/agent-traces`의 MVP4 흐름:
+
+Input → Classification → Query Normalization → DB Product Search → RAG Retrieval → Evidence Grouping → ProductFactPack → Answer Agent → Final Answer
+
+추가 필드:
+
+- `productFactPacks`
+- `dbFactsUsed`
+- `ragSourcesUsed`
+- `rejectedRagSources`
+- `lowScoreRagSources`
+- `groundingWarnings`
+- `answerUsedDbFacts`
+- `answerUsedRag`
+- `hallucinationGuardTriggered`
+- `fallbackReason`
+- `rawRagResultsCount`, `groupedRagResultsCount`, `droppedLowScoreCount`, `deduplicatedCount`
+
+#### RAG Health 확장
+
+`GET /api/admin/rag-health`는 기존 항목에 더해 다음을 반환한다.
+
+- retrieval threshold 설정값
+- sourceType별 평균 similarity sample
+- productId DB 매칭 sample
+- 최근 sync 요약(`recentSyncSummary`)
+- embedding dimension mismatch 여부
+
+#### 품질 테스트 질문
+
+권장 체크 질문:
+
+1. 와이드 팬츠 어떤거 있어?
+2. 베이지 와이드 팬츠 있어?
+3. 여름에 시원한 셔츠 추천해줘
+4. 리뷰 기준으로 크게 나온 바지 있어?
+5. 사이즈가 애매한데 어떻게 골라야 해?
+6. 환불은 어떤 조건에서 가능해?
+7. 배송은 며칠 걸려?
+8. 10만원 이하 바지 추천해줘
+9. 품절 상품도 추천해줘
+10. 주문 취소해줘
+
+각 테스트에서 category, DB tool 호출 여부, RAG source 사용 여부, 상품명/가격 정확성, 자동 환불/주문취소 차단 여부, fallback 여부를 확인한다.
+
+### 14.9 미구현 기능 및 리스크
+
+**미구현**: BM25 sparse search, Cohere rerank, Trace DB 영구 저장, 주문 조회 Tool, 채팅 세션 DB, RAG sync background job
 
 **리스크**:
 - pgvector 미설치 DB → RAG retrieval 빈 배열 fallback (챗봇은 동작하나 정책 근거 부족)
 - embedding API 키 없음 → sync/retrieval 실패 (sanitized errorCode 반환)
 - ivfflat 인덱스는 데이터 증가 시 recall 튜닝 필요
 - Gemini embedding(768dim)과 OpenAI(1536dim) 혼용 시 테이블 dimension 불일치 주의
-
+- **Vercel `/api/admin/rag-sync`**: 60초 maxDuration 내 대량 embedding 미완료 가능 → 운영 시 worker/cron 분리 권장
 
 

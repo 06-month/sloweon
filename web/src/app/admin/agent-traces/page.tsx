@@ -3,6 +3,17 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 
+interface TraceRagSource {
+  sourceType: string;
+  sourceId: string;
+  title: string;
+  score: number;
+  contentPreview: string;
+  usedByAgent: string;
+  reason?: string;
+  productId?: string | null;
+}
+
 interface AgentTrace {
   traceId: string;
   timestamp: string;
@@ -24,20 +35,54 @@ interface AgentTrace {
     outputSummary: string;
     success: boolean;
   }>;
-  ragSources?: Array<{
-    sourceType: string;
-    sourceId: string;
-    title: string;
-    score: number;
-    contentPreview: string;
-    usedByAgent: string;
+  ragSources?: TraceRagSource[];
+  ragSourcesUsed?: TraceRagSource[];
+  rejectedRagSources?: TraceRagSource[];
+  lowScoreRagSources?: TraceRagSource[];
+  productFactPacks?: Array<{
+    productId: string;
+    name: string;
+    koreanName: string;
+    priceKrw: number;
+    category: string;
+    color: string;
+    material: string;
+    fit: string;
+    description: string;
+    stockSummary: {
+      inStock: boolean;
+      totalStock: number;
+      availableOptions: string[];
+    };
+    productUrl: string;
+    sizeSpecs: Array<{ size: string }>;
+    modelFit?: {
+      modelName: string;
+      height: number;
+      weight: number;
+      wearingSize: string;
+      fitComment: string;
+    } | null;
+    reviewFitSummary?: string | null;
+    ragEvidenceTitles: string[];
+    ragEvidencePreview: string[];
   }>;
+  dbFactsUsed?: string[];
+  groundingWarnings?: string[];
+  answerUsedDbFacts?: boolean;
+  answerUsedRag?: boolean;
+  hallucinationGuardTriggered?: boolean;
   productSearchMeta?: {
     normalizedQuery: string;
     expandedQuery: string;
     productSearchFilters: Record<string, unknown>;
     toolResultsCount: number;
     ragResultsCount: number;
+    rawRagResultsCount?: number;
+    groupedRagResultsCount?: number;
+    droppedLowScoreCount?: number;
+    deduplicatedCount?: number;
+    productGroupingCollapsedCount?: number;
     productCandidatesCount: number;
     searchProductsCalled: boolean;
   };
@@ -128,7 +173,7 @@ export default function AgentTracesPage() {
           </span>
           <h1 className="text-2xl font-bold text-white mt-1.5 tracking-tight flex items-center gap-2">
             SLOWEON Agent Trace Console
-            <span className="text-zinc-500 font-normal text-sm">v3.0.0 (MVP3 RAG)</span>
+            <span className="text-zinc-500 font-normal text-sm">v4.0.0 (Grounded RAG)</span>
           </h1>
         </div>
         <div className="flex items-center gap-4">
@@ -304,6 +349,13 @@ export default function AgentTracesPage() {
                         <div><span className="text-zinc-500">normalized:</span> {selectedTrace.productSearchMeta.normalizedQuery}</div>
                         <div><span className="text-zinc-500">expanded:</span> {selectedTrace.productSearchMeta.expandedQuery}</div>
                         <div><span className="text-zinc-500">searchProducts:</span> {selectedTrace.productSearchMeta.searchProductsCalled ? "yes" : "no"} | <span className="text-zinc-500">candidates:</span> {selectedTrace.productSearchMeta.productCandidatesCount} | <span className="text-zinc-500">rag:</span> {selectedTrace.productSearchMeta.ragResultsCount}</div>
+                        <div>
+                          <span className="text-zinc-500">raw:</span> {selectedTrace.productSearchMeta.rawRagResultsCount ?? "-"} |{" "}
+                          <span className="text-zinc-500">grouped:</span> {selectedTrace.productSearchMeta.groupedRagResultsCount ?? "-"} |{" "}
+                          <span className="text-zinc-500">lowScoreDrop:</span> {selectedTrace.productSearchMeta.droppedLowScoreCount ?? "-"} |{" "}
+                          <span className="text-zinc-500">dedup:</span> {selectedTrace.productSearchMeta.deduplicatedCount ?? "-"} |{" "}
+                          <span className="text-zinc-500">productCollapsed:</span> {selectedTrace.productSearchMeta.productGroupingCollapsedCount ?? "-"}
+                        </div>
                       </div>
                     )}
                     {selectedTrace.ragSources && selectedTrace.ragSources.length > 0 ? (
@@ -324,7 +376,9 @@ export default function AgentTracesPage() {
                             <p className="text-zinc-400 text-[11px] leading-relaxed">{rag.contentPreview}</p>
                             <div className="flex items-center gap-3 mt-1.5 text-[10px] text-zinc-500 font-mono">
                               <span>id: {rag.sourceId}</span>
+                              {rag.productId && <span>product: {rag.productId}</span>}
                               <span>agent: {rag.usedByAgent}</span>
+                              {rag.reason && <span>reason: {rag.reason}</span>}
                             </div>
                           </div>
                         ))}
@@ -332,10 +386,134 @@ export default function AgentTracesPage() {
                     ) : (
                       <p className="text-[11px] text-zinc-500 mt-2">No RAG chunks retrieved.</p>
                     )}
+                    {selectedTrace.lowScoreRagSources && selectedTrace.lowScoreRagSources.length > 0 && (
+                      <div className="mt-4 border-t border-zinc-800/80 pt-3">
+                        <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
+                          Low Score RAG Sources ({selectedTrace.lowScoreRagSources.length})
+                        </span>
+                        <div className="mt-2 flex flex-col gap-1.5">
+                          {selectedTrace.lowScoreRagSources.slice(0, 5).map((rag, i) => (
+                            <div key={i} className="bg-amber-950/10 border border-amber-900/30 rounded-lg p-2 text-[11px] text-amber-200/80">
+                              <div className="flex justify-between gap-2">
+                                <span className="truncate">{rag.sourceType} · {rag.title}</span>
+                                <span className="font-mono">{(rag.score * 100).toFixed(0)}%</span>
+                              </div>
+                              <div className="mt-1 font-mono text-[10px] text-amber-300/60">
+                                {rag.sourceId}{rag.reason ? ` · ${rag.reason}` : ""}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* 4. Tool Execution */}
+                {/* 4. Evidence Grouping */}
+                <div className="flex gap-4 relative">
+                  <div className="w-6 h-6 rounded-full bg-sky-950 border border-sky-900 text-sky-400 text-xs font-bold flex items-center justify-center z-10">
+                    EG
+                  </div>
+                  <div className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl p-4">
+                    <span className="text-[10px] text-sky-400 font-bold uppercase tracking-wider">Evidence Grouping & Grounding</span>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 text-xs">
+                      <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
+                        <span className="text-[10px] text-zinc-500 uppercase">DB Facts Used</span>
+                        <p className="mt-1 text-zinc-200 font-mono">{selectedTrace.dbFactsUsed?.length ?? 0}</p>
+                      </div>
+                      <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
+                        <span className="text-[10px] text-zinc-500 uppercase">RAG Sources Used</span>
+                        <p className="mt-1 text-zinc-200 font-mono">{selectedTrace.ragSourcesUsed?.length ?? 0}</p>
+                      </div>
+                      <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-3">
+                        <span className="text-[10px] text-zinc-500 uppercase">Rejected Sources</span>
+                        <p className="mt-1 text-zinc-200 font-mono">{selectedTrace.rejectedRagSources?.length ?? 0}</p>
+                      </div>
+                    </div>
+
+                    {selectedTrace.ragSourcesUsed && selectedTrace.ragSourcesUsed.length > 0 && (
+                      <div className="mt-3">
+                        <span className="text-[10px] text-zinc-500 uppercase font-bold">RAG sources used by ProductFactPack</span>
+                        <div className="mt-2 flex flex-col gap-1.5">
+                          {selectedTrace.ragSourcesUsed.slice(0, 6).map((rag, i) => (
+                            <div key={i} className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-2 text-[11px]">
+                              <span className="text-zinc-300">{rag.sourceType} · {rag.title}</span>
+                              <span className="ml-2 text-zinc-500 font-mono">{rag.productId || rag.sourceId}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedTrace.rejectedRagSources && selectedTrace.rejectedRagSources.length > 0 && (
+                      <div className="mt-3">
+                        <span className="text-[10px] text-red-400 uppercase font-bold">Rejected RAG Sources</span>
+                        <div className="mt-2 flex flex-col gap-1.5">
+                          {selectedTrace.rejectedRagSources.slice(0, 6).map((rag, i) => (
+                            <div key={i} className="bg-red-950/10 border border-red-900/30 rounded-lg p-2 text-[11px]">
+                              <span className="text-red-200/80">{rag.sourceType} · {rag.title}</span>
+                              <span className="ml-2 text-red-300/60 font-mono">{rag.reason || "REJECTED"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedTrace.groundingWarnings && selectedTrace.groundingWarnings.length > 0 && (
+                      <div className="mt-3 bg-amber-950/20 border border-amber-900/40 rounded-lg p-2.5 text-xs text-amber-300">
+                        <strong>Grounding Warnings:</strong>
+                        <ul className="mt-1 list-disc pl-4 space-y-1">
+                          {selectedTrace.groundingWarnings.map((warning, i) => (
+                            <li key={i}>{warning}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 5. Product Fact Pack */}
+                <div className="flex gap-4 relative">
+                  <div className="w-6 h-6 rounded-full bg-orange-950 border border-orange-900 text-orange-400 text-xs font-bold flex items-center justify-center z-10">
+                    PF
+                  </div>
+                  <div className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl p-4">
+                    <span className="text-[10px] text-orange-400 font-bold uppercase tracking-wider">Product Fact Pack</span>
+                    {selectedTrace.productFactPacks && selectedTrace.productFactPacks.length > 0 ? (
+                      <div className="mt-3 flex flex-col gap-2">
+                        {selectedTrace.productFactPacks.map((pack) => (
+                          <div key={pack.productId} className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3 text-xs">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-zinc-100 font-bold truncate">
+                                {pack.koreanName} ({pack.name})
+                              </span>
+                              <span className="text-emerald-400 font-mono shrink-0">
+                                {pack.priceKrw.toLocaleString()}원
+                              </span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-zinc-400">
+                              <div>id: <span className="font-mono text-zinc-300">{pack.productId}</span></div>
+                              <div>url: <span className="font-mono text-zinc-300">{pack.productUrl}</span></div>
+                              <div>fit: <span className="text-zinc-300">{pack.fit}</span></div>
+                              <div>material: <span className="text-zinc-300">{pack.material}</span></div>
+                              <div>stock: <span className="text-zinc-300">{pack.stockSummary.totalStock}</span></div>
+                              <div>options: <span className="text-zinc-300">{pack.stockSummary.availableOptions.slice(0, 4).join(", ") || "-"}</span></div>
+                            </div>
+                            {pack.ragEvidenceTitles.length > 0 && (
+                              <p className="mt-2 text-[11px] text-zinc-500">
+                                evidence: {pack.ragEvidenceTitles.join(" · ")}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-500 mt-2">No ProductFactPack generated for this trace.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 6. Tool Execution */}
                 <div className="flex gap-4 relative">
                   <div className="w-6 h-6 rounded-full bg-emerald-950 border border-emerald-900 text-emerald-400 text-xs font-bold flex items-center justify-center z-10">
                     TL
@@ -412,6 +590,36 @@ export default function AgentTracesPage() {
                             {selectedTrace.guardrailActions.fallbackReason && (
                               <span className="ml-1 text-amber-400 font-mono">({selectedTrace.guardrailActions.fallbackReason})</span>
                             )}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold ${
+                            selectedTrace.answerUsedDbFacts ? "bg-emerald-950 border border-emerald-800 text-emerald-400" : "bg-zinc-800 text-zinc-500"
+                          }`}>
+                            {selectedTrace.answerUsedDbFacts ? "✓" : "✗"}
+                          </span>
+                          <span className={selectedTrace.answerUsedDbFacts ? "text-zinc-200" : "text-zinc-500"}>
+                            Answer Used DB Facts
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold ${
+                            selectedTrace.answerUsedRag ? "bg-cyan-950 border border-cyan-800 text-cyan-400" : "bg-zinc-800 text-zinc-500"
+                          }`}>
+                            {selectedTrace.answerUsedRag ? "✓" : "✗"}
+                          </span>
+                          <span className={selectedTrace.answerUsedRag ? "text-zinc-200" : "text-zinc-500"}>
+                            Answer Used RAG
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold ${
+                            selectedTrace.hallucinationGuardTriggered ? "bg-red-950 border border-red-800 text-red-400" : "bg-zinc-800 text-zinc-500"
+                          }`}>
+                            {selectedTrace.hallucinationGuardTriggered ? "✓" : "✗"}
+                          </span>
+                          <span className={selectedTrace.hallucinationGuardTriggered ? "text-zinc-200" : "text-zinc-500"}>
+                            Hallucination Guard Triggered
                           </span>
                         </div>
                       </div>

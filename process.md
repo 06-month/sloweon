@@ -1,5 +1,119 @@
 # 구현 진행 기록
 
+## 2026-07-03 15:23 KST - MVP4 RAG 정확도 개선 및 Toss 결제 버튼 통합 시작
+
+### 작업 목표
+
+- MVP4 "RAG Answer Accuracy & Grounding Improvement" 구현: DB/ProductTools facts와 RAG evidence의 우선순위를 분리하고 ProductFactPack 기반 답변으로 상품명/가격/재고/URL 정확도를 높인다.
+- 주문서 결제 UI에서 카드결제/간편결제/계좌이체 선택 버튼을 제거하고 Toss Payments 통합 결제창 단일 버튼으로 정리한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- 필수 문서: `docs/shopping-mall-pyd.md`, `docs/shopping-mall-planning.md`, `docs/customer-personas.md`, `docs/information-architecture.md`, `docs/user-scenarios.md`
+- 확인한 핵심 기준: P0 구매 흐름과 데이터 정합성, 상품명/가격/재고/옵션의 서버 기준 정확성, 실측/모델 착용/리뷰/교환·환불 정책의 근거 기반 안내, 자동 환불·자동 결제취소·자동 주문취소 금지
+
+### 초기 코드 진단
+
+- `answerAgent.ts`가 DB 후보와 `extractProductsFromRag()` 결과를 합치고 있어 RAG에서 추출한 가격/상품명이 추천 후보로 섞일 수 있음. MVP4에서는 RAG-only 상품을 추천 후보로 확정하지 않고 DB 기반 ProductFactPack만 답변에 사용하도록 수정 필요.
+- `retriever.ts`는 sourceType별 검색 함수가 일부 있으나 낮은 score reject, sourceType별 threshold/topK 설정 노출, grouping/dedup diagnostics가 부족함.
+- `trace.ts`와 `/admin/agent-traces`는 MVP3 기준 RAG/Tool 표시만 있고 ProductFactPack, rejectedRagSources, groundingWarnings, answerUsedDbFacts/answerUsedRag 등 디버깅 필드가 없음.
+- `CheckoutForm.tsx`는 카드 결제/간편결제/계좌이체 라디오를 보여주지만 Toss SDK 호출은 동일한 `requestPayment` 흐름으로 진행됨. 결제 confirm route와 success/fail callback은 유지하고 UI와 `method` 입력 의존성만 정리 가능.
+
+### 실행한 명령어와 결과 요약
+
+- `sed -n ... docs/*`: 필수 제품/페르소나/IA/시나리오 문서 확인 완료.
+- `sed -n ... web/src/lib/agents/*`, `web/src/lib/rag/*`, `web/src/lib/tools/productTools.ts`: 현재 RAG/Agent/ProductTools 흐름 확인 완료.
+- `sed -n ... web/src/components/CheckoutForm.tsx`, payment routes: Toss 결제 UI/SDK/confirm/fail 흐름 확인 완료.
+- `git status --short`: 작업 전 이미 `docs/shopping-mall-chatbot-rag-agent.md`, `plan.md`, `process.md` 변경 존재 확인. 기존 변경을 되돌리지 않고 이어서 갱신.
+
+### 구현한 변경 사항
+
+- `web/src/lib/rag/constants.ts`: MVP4 retrieval topK/threshold 환경변수와 sourceType별 정책 추가.
+- `web/src/lib/rag/retriever.ts`: detailed retrieval API, low-score reject, productId grouping/dedup diagnostics 추가.
+- `web/src/lib/rag/hybrid.ts`: 상품 hybrid retrieval에서 RAG diagnostics 반환.
+- `web/src/lib/agents/productFacts.ts`: DB 상품 후보 기준 ProductFactPack 생성. RAG-only 또는 DB 매칭 실패 source는 rejected source로 분리.
+- `web/src/lib/agents/answerAgent.ts`, `prompts.ts`: ProductFactPack 기반 결정적 상품 답변, 정책 근거 부족 fallback, grounding prompt 강화.
+- `web/src/lib/agents/productAnswer.ts`: RAG-only 상품 후보 추출 helper 제거, ProductFactPack 기반 formatter 유지.
+- `web/src/lib/agents/refundDecisionAgent.ts`: 환불/반품 policy RAG 근거가 없으면 관리자 검토 fallback.
+- `web/src/lib/agents/orchestrator.ts`, `trace.ts`: ProductFactPack, DB facts, RAG used/rejected/low-score, grounding warning, hallucination guard trace 필드 연결.
+- `web/src/app/admin/agent-traces/page.tsx`: RAG Retrieval → Evidence Grouping → ProductFactPack → Tool/Guardrail/Final Answer 흐름 표시.
+- `web/src/app/api/admin/rag-health/route.ts`: retrieval threshold 설정, sourceType별 similarity sample, productId 매칭 sample, 최근 sync 요약, embedding dimension mismatch 추가.
+- `web/src/components/CheckoutForm.tsx`: 카드결제/간편결제/계좌이체 라디오 제거, Toss Payments 단일 결제 CTA 및 안내 문구로 정리. 기존 SDK requestPayment/orderId/amount/success/fail URL 유지.
+- `web/.env.example`: RAG threshold/topK, Toss Payments 환경변수 예시 추가.
+- `docs/shopping-mall-chatbot-rag-agent.md`: MVP4 Grounding Policy, ProductFactPack, retrieval 정책, Trace/RAG Health 개선, 품질 테스트 방법 추가.
+- `docs/mvp4-rag-quality-test-cases.md`: MVP4 평가 질문 10개와 trace 확인 기준 추가.
+
+### 주요 의사결정과 이유
+
+- 상품 추천은 LLM 자유 생성 대신 ProductFactPack formatter를 우선 사용한다. 상품명/가격/URL hallucination을 원천 차단하기 위함.
+- RAG는 DB 상품과 productId가 매칭될 때만 상품 설명/사이즈/리뷰 근거로 사용한다. 매칭 실패 source는 `rejectedRagSources`로 기록한다.
+- Toss 결제는 서버 confirm flow를 건드리지 않고 UI 중복만 제거했다. 결제 성공/실패 callback과 테스트 키 fallback은 유지한다.
+
+### 검증 결과
+
+- `npm run typecheck --prefix web`: 통과 (`tsc --noEmit`)
+- `npm run build --prefix web`: 통과 (`prisma generate`, asset manifest 생성, Next production build 성공)
+- 로컬 dev 서버: 3000 포트 사용 중이라 3001 포트로 기동 후 확인.
+- `GET /api/admin/rag-health`: 200 응답. pgvector/rag_chunks/126 chunks/1536 dimension/threshold 설정/최근 sync 요약 필드 확인. 단, 로컬 `.env`에 embedding API key가 없어 `sample retrieval failed: EMBEDDING_API_KEY_MISSING`가 errors에 기록됨.
+- `GET /api/admin/traces`: 200 응답. 기존 메모리 seed trace 응답 확인. 실제 MVP4 trace 필드는 실제 챗봇 질의 생성 후 확인 필요.
+- `GET /admin/agent-traces`: 307 redirect → `/login?next=/admin` (기존 관리자 라우팅 가드)
+- `GET /checkout`: 307 redirect → `/cart` (장바구니 비어 있음)
+- `rg "카드 결제|간편결제|계좌이체"`: `CheckoutForm.tsx`에서는 기존 결제수단 분리 UI 제거 확인. 정책/RAG 문서성 텍스트에는 결제수단 단어가 남아 있음.
+
+### 테스트/검증 한계
+
+- 로컬 환경변수에 LLM/embedding key가 없어 `/api/chat`의 실제 Orchestrator + RAG retrieval 답변 품질은 로컬에서 완전 검증하지 못했다.
+- API 실검증은 Vercel 환경변수(`OPENAI_API_KEY`, `GEMINI_API_KEY` 또는 선택 provider key, `DATABASE_URL`, `ADMIN_TRACE_VIEWER_ENABLED`)가 있는 배포 환경에서 확인해야 한다.
+- 결제창 브라우저 오픈은 장바구니 세션/상품 선택 상태가 없는 로컬 curl 검증으로는 확인하지 못했다. 코드상 Toss SDK requestPayment 파라미터와 success/fail URL은 유지됨.
+
+### 남은 작업
+
+- 배포 환경에서 테스트 질문 10개 실행 후 `/admin/agent-traces`의 ProductFactPack/RAG source/rejected source 확인
+- 배포 환경에서 상품 상세 → 바로 구매 또는 장바구니 → 주문서 → Toss 결제창 오픈 확인
+
+---
+
+## 2026-07-03 - 토스페이먼츠 "알 수 없는 에러" 원인 규명 및 수정
+
+### 증상
+
+결제하기 클릭 시 결제창이 열리지 않고 "알 수 없는 에러가 발생했습니다." 표시. 브라우저 자동화로 재현: 콘솔에서 토스 SDK(v2/standard) 내부의 requestPayment 거부 확인.
+
+### 원인
+
+.env와 코드 fallback의 토스 테스트 키(test_ck_qbg2…/test_sk_Z61g…)가 실제 발급된 키가 아니었음. 시크릿 키를 토스 API에 직접 curl 호출해 검증 → 401 UNAUTHORIZED_KEY("인증되지 않은 시크릿 키 혹은 클라이언트 키") 확인. 무효한 클라이언트 키로 SDK가 결제 요청을 즉시 거부한 것.
+
+### 수정
+
+- 토스 공식 문서(카드/간편결제 통합결제창 연동 가이드)의 공개 테스트 키 세트로 교체:
+  clientKey test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq / secretKey test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R
+- 새 시크릿 키 curl 검증: 404 NOT_FOUND_PAYMENT = 인증 통과 확인
+- .env + CheckoutForm.tsx fallback + toss/success 라우트 fallback 3곳 모두 교체
+- 브라우저로 E2E 재검증: 상품 → 바로 구매 → 주문서 작성 → 결제하기 → 토스 결제창 정상 오픈("실제 결제가 안되는 테스트입니다" 배지 확인)
+
+### 배포 반영
+
+- 4a81e10으로 커밋·푸시(작업 트리의 챗봇/에이전트 미완성 변경은 제외하고 두 파일만 선별 커밋)
+- 코드 fallback에 유효 키가 들어갔으므로 Vercel에 별도 환경변수를 안 넣어도 동작. Vercel 환경변수에 옛 키를 넣어뒀다면 그 값이 fallback보다 우선하므로 새 키로 갱신하거나 삭제 필요
+
+## 2026-07-03 - RAG Sync API (Vercel 원격 적재) 추가
+
+### 작업 목표
+Vercel 배포 환경에서 `POST /api/admin/rag-sync`로 RAG chunk 적재 가능하게 함.
+
+### 구현한 변경 사항
+- `web/src/lib/rag/sync.ts`: `syncRagChunks()` 공유 모듈 (CLI + API 재사용)
+- `web/src/app/api/admin/rag-sync/route.ts`: POST, Bearer `RAG_SYNC_SECRET`, production 403 가드, `maxDuration=60`
+- `web/scripts/sync-vectors.ts`: CLI entrypoint로 `syncRagChunks()` 호출만 수행
+- `.env.example`: `RAG_SYNC_SECRET` 추가
+- `docs/shopping-mall-chatbot-rag-agent.md` §14.7: Vercel 호출 방법, curl, timeout 리스크
+
+### 검증 결과
+- `npm run typecheck --prefix web`: 통과
+- `npm run build --prefix web`: 통과 (`/api/admin/rag-sync` 라우트 포함)
+
+---
+
 ## 2026-07-03 - 챗봇 MVP3 RAG Knowledge Base 구현 완료
 
 ### 작업 목표

@@ -36,6 +36,19 @@ export async function runRefundDecisionAgent(
     };
   }
 
+  const hasPolicyEvidence = ragContext.some((item) =>
+    ["refund_policy", "return_policy"].includes(item.sourceType)
+  );
+  if (!hasPolicyEvidence) {
+    return {
+      decision: "requires_admin_review",
+      reason: "확인 가능한 환불/반품 정책 RAG 근거가 부족함",
+      requiredAdminAction: "주문 상태와 최신 환불/반품 정책 수동 확인",
+      customerFacingMessage:
+        "현재 확인 가능한 SLOWEON 환불/반품 정책 근거가 부족해 챗봇에서 가능 여부를 확정할 수 없습니다. 마이페이지(/mypage) 또는 1:1 문의로 접수해 주시면 담당자가 주문 상태와 상품 상태를 확인한 뒤 안내드리겠습니다. 챗봇에서는 자동 환불·결제취소 처리가 불가합니다.",
+    };
+  }
+
   const systemPrompt = buildRefundPromptWithContext({
     customerMessage,
     sessionInfo,

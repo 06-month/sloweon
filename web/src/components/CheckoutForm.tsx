@@ -4,12 +4,6 @@ import { useMemo, useState } from "react";
 import { prepareOrder } from "@/app/actions/order";
 import { won } from "@/lib/format";
 
-const METHODS = [
-  { key: "CARD", label: "카드 결제" },
-  { key: "EASY_PAY", label: "간편결제" },
-  { key: "BANK_TRANSFER", label: "계좌이체" },
-];
-
 export type CouponOption = {
   id: string;
   name: string;
@@ -71,10 +65,6 @@ export function CheckoutForm({
       const { loadTossPayments } = await import("@tosspayments/tosspayments-sdk");
       const tossPayments = await loadTossPayments(clientKey);
 
-      const method = formData.get("method") as string;
-      let tossMethod = "CARD";
-      if (method === "BANK_TRANSFER") tossMethod = "TRANSFER";
-
       const customerKey = res.customerEmail
         ? res.customerEmail.replace(/[^a-zA-Z0-9_-]/g, "")
         : "GUEST_" + Math.random().toString(36).substring(2);
@@ -84,7 +74,7 @@ export function CheckoutForm({
       });
 
       await payment.requestPayment({
-        method: tossMethod as any,
+        method: "CARD",
         amount: {
           currency: "KRW",
           value: res.finalAmount!,
@@ -211,19 +201,8 @@ export function CheckoutForm({
 
       <section>
         <p className="label-caps mb-3">결제 수단</p>
-        <div className="flex gap-2">
-          {METHODS.map((m, i) => (
-            <label
-              key={m.key}
-              className="flex-1 cursor-pointer border hairline bg-surface py-3 text-center text-xs has-[:checked]:border-ink has-[:checked]:bg-ink has-[:checked]:text-bg"
-            >
-              <input type="radio" name="method" value={m.key} defaultChecked={i === 0} className="sr-only" />
-              {m.label}
-            </label>
-          ))}
-        </div>
         <p className="mt-2 text-xs text-ink-faint">
-          토스페이먼츠 테스트 결제창이 열립니다. 테스트 키 환경에서는 실제로 청구되지 않습니다.
+          토스페이먼츠 결제창에서 카드, 간편결제 등 결제수단을 선택할 수 있습니다. 테스트 키 환경에서는 실제로 청구되지 않습니다.
         </p>
       </section>
 
@@ -270,7 +249,7 @@ export function CheckoutForm({
         disabled={pending}
         className="w-full bg-ink py-4 text-xs tracking-[0.2em] text-bg transition-opacity hover:opacity-85 disabled:opacity-50"
       >
-        {pending ? "결제 처리 중…" : `${won(finalAmount)} 결제하기`}
+        {pending ? "결제 처리 중…" : `${won(finalAmount)} 토스페이먼츠로 결제하기`}
       </button>
     </form>
   );
