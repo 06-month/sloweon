@@ -130,7 +130,7 @@ export default function AgentTracesPage() {
 
   const fetchTraces = async () => {
     try {
-      const response = await fetch("/api/admin/traces");
+      const response = await fetch("/api/admin?action=traces");
       
       if (response.status === 403) {
         const errData = await response.json();

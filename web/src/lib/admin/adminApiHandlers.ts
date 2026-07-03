@@ -1,5 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getTraces } from "@/lib/agents/trace";
+import { generateGeminiText } from "@/lib/llm/providers/gemini";
+import { generateClaudeText } from "@/lib/llm/providers/claude";
+import { generateSkAxText } from "@/lib/llm/providers/sk-ax";
+import { generateOpenAiText } from "@/lib/llm/providers/openai";
+import {
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_SK_AX_MODEL,
+} from "@/lib/llm/constants";
 import {
   generateEmbedding,
   getEmbeddingConfig,
@@ -16,17 +27,259 @@ import {
   RAG_SOURCE_TYPE_POLICIES,
   RAG_SIMILARITY_THRESHOLD,
 } from "@/lib/rag/constants";
+import { syncRagChunks } from "@/lib/rag/sync";
 
-export const dynamic = "force-dynamic";
+const ADMIN_ACTIONS = ["rag-health", "llm-health", "traces", "rag-sync"] as const;
+type AdminAction = (typeof ADMIN_ACTIONS)[number];
 
-export async function GET() {
+function getAction(request: NextRequest): string | null {
+  return request.nextUrl.searchParams.get("action");
+}
+
+function isAdminDebugAllowed() {
+  return (
+    process.env.NODE_ENV === "development" ||
+    process.env.ADMIN_TRACE_VIEWER_ENABLED === "true"
+  );
+}
+
+function adminDebugForbidden(message: string) {
+  return NextResponse.json({ error: message }, { status: 403 });
+}
+
+function methodNotAllowed(message = "Method Not Allowed") {
+  return NextResponse.json({ error: message }, { status: 405 });
+}
+
+function unsupportedActionResponse(action: string | null) {
+  return NextResponse.json(
+    {
+      error: action ? `Unsupported admin action: ${action}` : "Missing admin action",
+      supportedActions: ADMIN_ACTIONS,
+    },
+    { status: 400 }
+  );
+}
+
+function extractBearerToken(request: NextRequest): string | null {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  return authHeader.slice(7).trim() || null;
+}
+
+function isRagSyncAuthorized(request: NextRequest): boolean {
+  const secret = process.env.RAG_SYNC_SECRET;
+  const token = extractBearerToken(request);
+
+  if (process.env.NODE_ENV === "production") {
+    return Boolean(secret && token && token === secret);
+  }
+
+  if (secret) {
+    return token === secret;
+  }
+
+  return true;
+}
+
+export async function handleAdminGet(request: NextRequest) {
+  const action = getAction(request);
+
+  switch (action as AdminAction | null) {
+    case "rag-health":
+      return handleRagHealth();
+    case "llm-health":
+      return handleLlmHealth();
+    case "traces":
+      return handleTraces();
+    case "rag-sync":
+      return methodNotAllowed("Use POST /api/admin?action=rag-sync");
+    default:
+      return unsupportedActionResponse(action);
+  }
+}
+
+export async function handleAdminPost(request: NextRequest) {
+  const action = getAction(request);
+
+  switch (action as AdminAction | null) {
+    case "rag-sync":
+      return handleRagSync(request);
+    case "rag-health":
+    case "llm-health":
+    case "traces":
+      return methodNotAllowed(`Use GET /api/admin?action=${action}`);
+    default:
+      return unsupportedActionResponse(action);
+  }
+}
+
+async function handleTraces() {
   try {
-    const isDev = process.env.NODE_ENV === "development";
-    const isEnabled = process.env.ADMIN_TRACE_VIEWER_ENABLED === "true";
-    if (!isDev && !isEnabled) {
-      return NextResponse.json(
-        { error: "Access Denied: RAG Health API is restricted." },
-        { status: 403 }
+    if (!isAdminDebugAllowed()) {
+      return adminDebugForbidden(
+        "Access Denied: Trace viewer is disabled on production by default. Enable it via ADMIN_TRACE_VIEWER_ENABLED=true."
+      );
+    }
+
+    return NextResponse.json({ traces: getTraces() });
+  } catch {
+    return NextResponse.json({ error: "Trace 조회 실패" }, { status: 500 });
+  }
+}
+
+async function handleRagSync(request: NextRequest) {
+  if (!isRagSyncAuthorized(request)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  try {
+    const result = await syncRagChunks({ delayMs: 0 });
+
+    return NextResponse.json({
+      ok: true,
+      insertedOrUpdated: result.insertedOrUpdated,
+      sourceTypeCounts: result.sourceTypeCounts,
+      durationMs: result.durationMs,
+    });
+  } catch (error: unknown) {
+    console.error(
+      "RAG sync API failed:",
+      error instanceof Error ? error.message : "unknown"
+    );
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "RAG_SYNC_FAILED",
+        message: "RAG sync failed. Check server logs.",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleLlmHealth() {
+  try {
+    if (!isAdminDebugAllowed()) {
+      return adminDebugForbidden(
+        "Access Denied: Health Check API is restricted to dev environment or admin flag."
+      );
+    }
+
+    const testParams = {
+      systemPrompt: "You are a health check system. Reply with exactly 'ok'.",
+      messages: [{ role: "user" as const, content: "ping" }],
+    };
+
+    const openAiConfigured = !!process.env.OPENAI_API_KEY;
+    const openAiModel = process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
+    let openAiOk = false;
+    let openAiError: string | null = null;
+    if (openAiConfigured) {
+      const res = await generateOpenAiText(testParams);
+      if (res.error) {
+        openAiError = res.errorCode || "CALL_FAILED";
+      } else {
+        openAiOk = true;
+      }
+    } else {
+      openAiError = "API_KEY_MISSING";
+    }
+
+    const geminiConfigured = !!process.env.GEMINI_API_KEY;
+    const geminiModel = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+    let geminiOk = false;
+    let geminiError: string | null = null;
+    if (geminiConfigured) {
+      const res = await generateGeminiText(testParams);
+      if (res.error) {
+        geminiError = res.errorCode || "CALL_FAILED";
+      } else {
+        geminiOk = true;
+      }
+    } else {
+      geminiError = "API_KEY_MISSING";
+    }
+
+    const claudeConfigured = !!process.env.ANTHROPIC_API_KEY;
+    const claudeModel = process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL;
+    let claudeOk = false;
+    let claudeError: string | null = null;
+    if (claudeConfigured) {
+      const res = await generateClaudeText(testParams);
+      if (res.error) {
+        claudeError = res.errorCode || "CALL_FAILED";
+      } else {
+        claudeOk = true;
+      }
+    } else {
+      claudeError = "API_KEY_MISSING";
+    }
+
+    const skAxApiKeyConfigured = !!process.env.SK_AX_API_KEY;
+    const skAxBaseUrlConfigured = !!process.env.SK_AX_BASE_URL;
+    const skAxModel = process.env.SK_AX_MODEL || DEFAULT_SK_AX_MODEL;
+    let skAxOk = false;
+    let skAxError: string | null = null;
+    if (skAxApiKeyConfigured && skAxBaseUrlConfigured) {
+      const res = await generateSkAxText(testParams);
+      if (res.error) {
+        skAxError = res.errorCode || "CALL_FAILED";
+      } else {
+        skAxOk = true;
+      }
+    } else if (!skAxBaseUrlConfigured) {
+      skAxError = "BASE_URL_MISSING";
+    } else {
+      skAxError = "API_KEY_MISSING";
+    }
+
+    return NextResponse.json({
+      openai: {
+        configured: openAiConfigured,
+        ok: openAiOk,
+        model: openAiModel,
+        error: openAiError,
+      },
+      gemini: {
+        configured: geminiConfigured,
+        ok: geminiOk,
+        model: geminiModel,
+        error: geminiError,
+      },
+      claude: {
+        configured: claudeConfigured,
+        ok: claudeOk,
+        model: claudeModel,
+        error: claudeError,
+      },
+      sk_ax: {
+        configured: skAxApiKeyConfigured,
+        ok: skAxOk,
+        baseUrlConfigured: skAxBaseUrlConfigured,
+        model: skAxModel,
+        error: skAxError,
+      },
+    });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Internal server error during healthcheck",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleRagHealth() {
+  try {
+    if (!isAdminDebugAllowed()) {
+      return adminDebugForbidden(
+        "Access Denied: RAG Health API is restricted."
       );
     }
 
@@ -124,7 +377,9 @@ export async function GET() {
           healthReport.embeddingDimension !== null &&
           healthReport.embeddingDimension !== DEFAULT_EMBEDDING_DIMENSION;
       } catch {
-        (healthReport.errors as string[]).push("embedding dimension check failed");
+        (healthReport.errors as string[]).push(
+          "embedding dimension check failed"
+        );
       }
 
       try {
