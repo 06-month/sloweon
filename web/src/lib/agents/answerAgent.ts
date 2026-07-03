@@ -1,5 +1,6 @@
 import { routeLLMRequest } from "../llm/router";
-import { ANSWER_SYSTEM_PROMPT } from "./prompts";
+import { buildAnswerPromptWithContext } from "./prompts";
+import type { RagContextItem } from "../rag/retriever";
 
 export interface AnswerOutput {
   content: string;
@@ -13,34 +14,64 @@ export interface AnswerOutput {
   modelUsed?: string;
 }
 
+export interface AnswerAgentInput {
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  selectedProvider: string;
+  modelMode: string;
+  category: string;
+  ragContext: RagContextItem[];
+  toolResults: AnswerOutput["calledTools"];
+}
+
+function summarizeToolResults(
+  tools: AnswerOutput["calledTools"]
+): string {
+  if (!tools.length) return "";
+  return tools
+    .map(
+      (t) =>
+        `${t.toolName}(${t.inputSummary}) → ${t.success ? t.outputSummary : "FAILED"}`
+    )
+    .join("\n");
+}
+
 export async function runAnswerAgent(
-  messages: Array<{ role: "user" | "assistant"; content: string }>,
-  selectedProvider: string,
-  modelMode: string
+  input: AnswerAgentInput
 ): Promise<AnswerOutput> {
-  // 1. 모델 정책 결정 (sk_only 모드일 경우 sk_ax 고정)
+  const { messages, selectedProvider, modelMode, category, ragContext, toolResults } =
+    input;
+
   const targetProvider = modelMode === "sk_only" ? "sk_ax" : selectedProvider;
 
-  // 2. 도구 실행 내역 트래킹 (일반 AnswerAgent 텍스트 생성은 도구 직접 기동을 route.ts의 Gemini SDK에 위임함)
-  const traceTools: AnswerOutput["calledTools"] = [];
+  const systemPrompt = buildAnswerPromptWithContext({
+    ragContext: ragContext.map((r) => ({
+      sourceType: r.sourceType,
+      title: r.title,
+      contentPreview: r.contentPreview,
+      score: r.score,
+    })),
+    toolResults: summarizeToolResults(toolResults),
+    category,
+  });
 
   try {
     const response = await routeLLMRequest(targetProvider, {
-      systemPrompt: ANSWER_SYSTEM_PROMPT,
-      messages: messages
+      systemPrompt,
+      messages,
     });
 
     return {
       content: response.content,
-      calledTools: traceTools,
+      calledTools: toolResults,
       errorCode: response.errorCode,
-      modelUsed: response.modelUsed
+      modelUsed: response.modelUsed,
     };
-  } catch (error: any) {
+  } catch {
     return {
-      content: "죄송합니다. 답변을 생성하는 중 일시적인 서버 지연이 발생하였습니다. 상세한 내용은 고객센터에 확인을 부탁드립니다.",
-      calledTools: [],
-      errorCode: "ANSWER_AGENT_ERROR"
+      content:
+        "죄송합니다. 답변을 생성하는 중 일시적인 서버 지연이 발생하였습니다. 상세한 내용은 고객센터에 확인을 부탁드립니다.",
+      calledTools: toolResults,
+      errorCode: "ANSWER_AGENT_ERROR",
     };
   }
 }

@@ -169,6 +169,33 @@
   - [x] 타입체크 및 빌드 검증 (`npm run typecheck --prefix web` 및 `npm run build --prefix web`)
 - 검증 방법: 헬스체크 API 호출, 타입체크 및 프로덕션 빌드 성공 여부 검사.
 
+### 1.0.8 챗봇 MVP3 RAG Knowledge Base 구현 (2026-07-03)
+
+- 작업 목표: Supabase PostgreSQL + pgvector 기반 RAG Knowledge Base를 구축하고, Agent Orchestrator에 Hybrid Retrieval을 연결한다.
+- 구현 범위:
+  - pgvector SQL migration (`web/prisma/migrations/rag_pgvector_setup.sql`)
+  - Embedding provider (`web/src/lib/rag/embeddings.ts`, `constants.ts`)
+  - Indexing script (`web/scripts/sync-vectors.ts`, `npm run rag:sync`)
+  - Retrieval (`web/src/lib/rag/retriever.ts`, `hybrid.ts`)
+  - Orchestrator RAG 연결 (`orchestrator.ts`, `answerAgent.ts`, `refundDecisionAgent.ts`)
+  - Trace RAG source 기록 및 Viewer Timeline 갱신
+  - RAG Health API (`/api/admin/rag-health`)
+- 제외 범위: BM25 sparse search, Cohere rerank, Trace DB 영구 저장, 자동 환불/결제취소
+- 관련 요구사항 ID: FE-011, NF-013, C-021
+- 구현 단계별 체크리스트:
+  - [x] pgvector rag_chunks 테이블 및 match_rag_chunks 함수
+  - [x] Embedding provider (openai/gemini) + sanitized errorCode
+  - [x] sync-vectors.ts (product, product_detail, size_guide, review_summary, policies, FAQ, brand_guide)
+  - [x] retriever.ts + hybrid retrieval
+  - [x] Orchestrator RAG + productTools 연동
+  - [x] Answer/Refund Agent prompt RAG context 주입
+  - [x] Trace RAG source + Viewer Timeline (Input → Classification → RAG → Tools → Answer → Output)
+  - [x] /api/admin/rag-health
+  - [x] 문서 갱신 (docs, plan, process, .env.example)
+  - [x] typecheck/build 검증
+- 검증 방법: typecheck, build, rag:sync (DB 연결 시), rag-health API 응답 확인
+- 리스크: pgvector 미설치 DB에서는 RAG retrieval 빈 배열 fallback; embedding API 키 없으면 sync/retrieval 실패
+
 ### 1.1 Image Worker 1 하의 이미지 생성 작업 목표 (2026-07-03)
 
 - 작업 목표: 요청된 하의 누락 이미지 4개를 생성한다.

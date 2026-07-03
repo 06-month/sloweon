@@ -1,5 +1,93 @@
 # 구현 진행 기록
 
+## 2026-07-03 - 챗봇 MVP3 RAG Knowledge Base 구현 완료
+
+### 작업 목표
+Supabase PostgreSQL + pgvector 기반 RAG Knowledge Base 구축 및 Agent Orchestrator Hybrid Retrieval 연동.
+
+### 읽은 문서와 확인한 요구사항
+- `docs/shopping-mall-chatbot-rag-agent.md`, `plan.md`, Prisma schema, MVP1/MVP2 챗봇 구조
+- FE-011, NF-013, C-021
+
+### 구현한 변경 사항
+- **pgvector 스키마**: `web/prisma/migrations/rag_pgvector_setup.sql` — rag_chunks 테이블, ivfflat 인덱스, match_rag_chunks RPC
+- **Embedding**: `web/src/lib/rag/embeddings.ts`, `constants.ts` — openai/gemini provider, sanitized EmbeddingError
+- **Indexing**: `web/scripts/sync-vectors.ts` — product/product_detail/size_guide/review_summary/정책/FAQ/brand_guide upsert
+- **Retrieval**: `retriever.ts` (retrieveRagContext, retrievePolicyContext, retrieveProductContext), `hybrid.ts` (DB filter + RAG)
+- **Agents**: orchestrator RAG 연결, answerAgent/refundDecisionAgent RAG context 주입, prompts 갱신
+- **Trace**: ragSources 필드 확장 (sourceId, contentPreview, usedByAgent), Viewer RAG Retrieval 타임라인 단계
+- **Health API**: `/api/admin/rag-health` — pgvector/chunk stats/sample retrieval
+- **package.json**: `rag:sync` 스크립트 추가
+- **.env.example**: EMBEDDING_PROVIDER, OPENAI_EMBEDDING_MODEL, GEMINI_EMBEDDING_MODEL
+
+### 수정한 파일
+- `web/src/lib/rag/` (constants, embeddings, embedder, retriever, hybrid)
+- `web/scripts/sync-vectors.ts`
+- `web/src/lib/agents/orchestrator.ts`, `answerAgent.ts`, `refundDecisionAgent.ts`, `prompts.ts`, `trace.ts`
+- `web/src/app/admin/agent-traces/page.tsx`
+- `web/src/app/api/admin/rag-health/route.ts`
+- `web/package.json`, `web/.env.example`
+- `docs/shopping-mall-chatbot-rag-agent.md`, `plan.md`, `process.md`
+
+### 주요 의사결정
+- Prisma schema에 vector 타입 미포함 — raw SQL migration으로 pgvector 관리 (Prisma 빌드 안정성)
+- Hybrid Retrieval: 가격/카테고리/색상/재고는 productTools DB filter 우선, 스타일/리뷰/사이즈/정책은 RAG
+- RAG 실패 시 빈 배열 fallback — 챗봇 전체 중단 방지
+- 자동 환불/결제취소 가드레일 유지
+
+### 검증 결과
+- `npm run typecheck --prefix web`: 통과
+- `npm run build --prefix web`: 통과 (`/api/admin/rag-health` 라우트 포함)
+- `npm run rag:sync --prefix web`: rag_chunks 테이블 미존재로 exit 1 (마이그레이션 선행 필요 — 정상 동작)
+- `GET /api/admin/rag-health` (development): 200 응답, pgvectorExtension=false, errors=["rag_chunks table not found"] (DB 미설정 환경)
+
+### 남은 작업
+- BM25 hybrid search, Cohere rerank, Trace DB 영구 저장, 주문 조회 Tool 연동
+
+---
+
+## 2026-07-03 - 챗봇 UI 디자인 개선 (브랜드 톤 통일)
+
+### 작업 목표
+배포된 SLOWEON 사이트(sloweon.vercel.app)의 챗봇 디자인이 사이트와 이질적인 다크 테마로 되어 있어, SLOWEON 브랜드 디자인 토큰에 맞는 따뜻한 미니멀 컨템포러리 톤으로 전면 재디자인.
+
+### 읽은 문서와 확인한 요구사항
+- `globals.css`: 디자인 토큰 확인 (--color-bg: #f6f4ef, --color-surface: #fdfcfa, --color-ink: #211f1c 등)
+- `Header.tsx`: 사이트 전체 디자인 방향 파악 (세리프 브랜드명, 넓은 자간, 얇은 구분선)
+- `docs/design-instruct.md` 기반 톤: 무채색·뮤트 베이스 + 세리프 디스플레이 + 8pt 여백
+
+### 분석된 문제점
+1. **색상 불일치**: 사이트는 오프화이트(#f6f4ef) 기반인데 챗봇은 zinc-950(차가운 다크) 테마
+2. **AI MODEL 셀렉터 과도 노출**: 기술적 요소가 헤더를 차지해 고객 혼란
+3. **메시지 구분 어려움**: 봇/유저 메시지 모두 어두운 회색으로 비슷
+4. **브랜드 타이포 미적용**: 사이트의 Cormorant Garamond 세리프가 챗봇에 미사용
+5. **플로팅 버튼 이질감**: zinc-800 그라데이션이 사이트 톤과 안 맞음
+
+### 구현한 변경 사항
+- **`ChatBot.tsx`**: 전면 재작성. Tailwind 인라인 → Vanilla CSS 클래스 전환, AI 모델 셀렉터를 설정 아이콘(⚙) 뒤로 숨김, 헤더에 세리프 브랜드명 + "SHOPPING ASSISTANT" 라벨 적용
+- **`ModelSelector.tsx`**: 클래스명 기반 스타일로 전환, 따뜻한 팔레트 적용
+- **`globals.css`**: 520줄 이상의 챗봇 전용 CSS 추가. SLOWEON 디자인 토큰 직접 활용:
+  - 플로팅 버튼: ink(#211f1c) 배경, 부드러운 그림자
+  - 컨테이너: surface(#fdfcfa) 배경, 따뜻한 보더
+  - 봇 말풍선: bg(#f6f4ef) 배경 + ink 텍스트
+  - 유저 말풍선: ink(#211f1c) 배경 + bg 텍스트 (확실한 대비)
+  - 타이핑 인디케이터: sand 색상 도트 애니메이션
+  - 상태 도트: success(#4f6b4a) + pulse 애니메이션
+  - slide-up, fade-in 등 마이크로 애니메이션 추가
+  - 모바일 반응형(480px 이하) 대응
+  - 커스텀 스크롤바 스타일
+
+### 수정한 파일
+- `web/src/components/chatbot/ChatBot.tsx`
+- `web/src/components/chatbot/ModelSelector.tsx`
+- `web/src/app/globals.css`
+
+### 주요 의사결정과 이유
+- Tailwind 인라인 → Vanilla CSS 클래스 전환: 디자인 토큰(CSS 변수) 직접 참조로 사이트 일관성 보장
+- 모델 셀렉터 숨김: 고객 관점에서 기술적 옵션은 불필요, 톱니바퀴 아이콘으로 필요 시 접근 가능
+- 라이트 테마 전환: 사이트 전체가 밝은 톤이므로 챗봇만 다크면 이질감 발생
+
+
 ## 2026-07-03 - 챗봇 LLM 연결 상태 진단 및 에러 마스킹 강화 완료
 
 ### 작업 목표

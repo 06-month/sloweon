@@ -26,9 +26,11 @@ interface AgentTrace {
   }>;
   ragSources?: Array<{
     sourceType: string;
+    sourceId: string;
     title: string;
     score: number;
-    documentId: string;
+    contentPreview: string;
+    usedByAgent: string;
   }>;
   finalAnswer: string;
   guardrailActions?: {
@@ -116,7 +118,7 @@ export default function AgentTracesPage() {
           </span>
           <h1 className="text-2xl font-bold text-white mt-1.5 tracking-tight flex items-center gap-2">
             SLOWEON Agent Trace Console
-            <span className="text-zinc-500 font-normal text-sm">v2.0.0 (MVP2)</span>
+            <span className="text-zinc-500 font-normal text-sm">v3.0.0 (MVP3 RAG)</span>
           </h1>
         </div>
         <div className="flex items-center gap-4">
@@ -280,70 +282,80 @@ export default function AgentTracesPage() {
                   </div>
                 )}
 
-                {/* 3. Task / RAG & Tools Action */}
+                {/* 3. RAG Retrieval */}
                 <div className="flex gap-4 relative">
-                  <div className="w-6 h-6 rounded-full bg-emerald-950 border border-emerald-900 text-emerald-400 text-xs font-bold flex items-center justify-center z-10">
-                    EX
+                  <div className="w-6 h-6 rounded-full bg-cyan-950 border border-cyan-900 text-cyan-400 text-xs font-bold flex items-center justify-center z-10">
+                    RG
                   </div>
-                  <div className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl p-4 flex flex-col gap-4">
-                    <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Retrieval & Execution Logs</span>
-                    
-                    {/* RAG Sources list */}
-                    <div>
-                      <h4 className="text-xs text-zinc-400 mb-2 font-semibold">📚 RAG 지식 문서 매핑</h4>
-                      {selectedTrace.ragSources && selectedTrace.ragSources.length > 0 ? (
-                        <div className="flex flex-col gap-1.5">
-                          {selectedTrace.ragSources.map((rag, i) => (
-                            <div key={i} className="flex items-center justify-between bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-800/80 text-xs">
-                              <div className="flex items-center gap-2">
-                                <span className="bg-zinc-800 text-[10px] text-zinc-400 px-1.5 py-0.5 rounded">
+                  <div className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl p-4">
+                    <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">RAG Retrieval</span>
+                    {selectedTrace.ragSources && selectedTrace.ragSources.length > 0 ? (
+                      <div className="flex flex-col gap-1.5 mt-3">
+                        {selectedTrace.ragSources.map((rag, i) => (
+                          <div key={i} className="bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-800/80 text-xs">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="bg-zinc-800 text-[10px] text-zinc-400 px-1.5 py-0.5 rounded shrink-0">
                                   {rag.sourceType}
                                 </span>
-                                <span className="text-zinc-200 font-semibold">{rag.title}</span>
+                                <span className="text-zinc-200 font-semibold truncate">{rag.title}</span>
                               </div>
-                              <span className="text-zinc-500 font-mono text-[10px]">{rag.documentId}</span>
+                              <span className="text-emerald-400 font-mono text-[10px] shrink-0">
+                                {(rag.score * 100).toFixed(0)}%
+                              </span>
                             </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-zinc-500">No RAG references queried.</p>
-                      )}
-                    </div>
-
-                    {/* Called Tools list */}
-                    <div>
-                      <h4 className="text-xs text-zinc-400 mb-2 font-semibold">🛠️ Agent Tools 실행 내역</h4>
-                      {selectedTrace.calledTools && selectedTrace.calledTools.length > 0 ? (
-                        <div className="flex flex-col gap-2">
-                          {selectedTrace.calledTools.map((tool, i) => (
-                            <div key={i} className="bg-zinc-900/60 p-3 rounded-lg border border-zinc-800/80 text-xs flex flex-col gap-1">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-zinc-100 font-bold font-mono">
-                                  {tool.toolName}()
-                                </span>
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                  tool.success ? "bg-emerald-950 text-emerald-400" : "bg-red-950 text-red-400"
-                                }`}>
-                                  {tool.success ? "SUCCESS" : "FAILURE"}
-                                </span>
-                              </div>
-                              <div className="text-[11px] text-zinc-400">
-                                <strong>Input:</strong> <code className="bg-zinc-950/60 px-1 py-0.5 rounded font-mono text-zinc-300">{tool.inputSummary}</code>
-                              </div>
-                              <div className="text-[11px] text-zinc-400 mt-0.5">
-                                <strong>Output:</strong> <code className="bg-zinc-950/60 px-1 py-0.5 rounded font-mono text-zinc-300">{tool.outputSummary}</code>
-                              </div>
+                            <p className="text-zinc-400 text-[11px] leading-relaxed">{rag.contentPreview}</p>
+                            <div className="flex items-center gap-3 mt-1.5 text-[10px] text-zinc-500 font-mono">
+                              <span>id: {rag.sourceId}</span>
+                              <span>agent: {rag.usedByAgent}</span>
                             </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-zinc-500">No tool executions requested.</p>
-                      )}
-                    </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-500 mt-2">No RAG chunks retrieved.</p>
+                    )}
                   </div>
                 </div>
 
-                {/* 4. Guardrail Status */}
+                {/* 4. Tool Execution */}
+                <div className="flex gap-4 relative">
+                  <div className="w-6 h-6 rounded-full bg-emerald-950 border border-emerald-900 text-emerald-400 text-xs font-bold flex items-center justify-center z-10">
+                    TL
+                  </div>
+                  <div className="flex-1 bg-zinc-900/40 border border-zinc-800 rounded-xl p-4 flex flex-col gap-4">
+                    <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Tool Execution</span>
+                    
+                    {selectedTrace.calledTools && selectedTrace.calledTools.length > 0 ? (
+                      <div className="flex flex-col gap-2">
+                        {selectedTrace.calledTools.map((tool, i) => (
+                          <div key={i} className="bg-zinc-900/60 p-3 rounded-lg border border-zinc-800/80 text-xs flex flex-col gap-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-zinc-100 font-bold font-mono">
+                                {tool.toolName}()
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                tool.success ? "bg-emerald-950 text-emerald-400" : "bg-red-950 text-red-400"
+                              }`}>
+                                {tool.success ? "SUCCESS" : "FAILURE"}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-zinc-400">
+                              <strong>Input:</strong> <code className="bg-zinc-950/60 px-1 py-0.5 rounded font-mono text-zinc-300">{tool.inputSummary}</code>
+                            </div>
+                            <div className="text-[11px] text-zinc-400 mt-0.5">
+                              <strong>Output:</strong> <code className="bg-zinc-950/60 px-1 py-0.5 rounded font-mono text-zinc-300">{tool.outputSummary}</code>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-500">No tool executions requested.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 5. Guardrail Status */}
                 {selectedTrace.guardrailActions && (
                   <div className="flex gap-4 relative">
                     <div className="w-6 h-6 rounded-full bg-red-950 border border-red-900 text-red-400 text-xs font-bold flex items-center justify-center z-10">
@@ -387,7 +399,7 @@ export default function AgentTracesPage() {
                   </div>
                 )}
 
-                {/* 5. Final Answer */}
+                {/* 6. Final Answer */}
                 <div className="flex gap-4 relative">
                   <div className="w-6 h-6 rounded-full bg-zinc-100 text-zinc-950 text-xs font-bold flex items-center justify-center z-10">
                     OUT

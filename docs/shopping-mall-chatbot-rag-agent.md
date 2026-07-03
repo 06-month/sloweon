@@ -42,10 +42,8 @@ sloweon RAG/Agent 챗봇을 구성하는 3대 에이전트의 세부 기획 및 
 | **Output** | category, confidence, reason, nextAgent, requiredTools | markdownCSAnswer, calledToolsSummary | decision, reason, requiredAdminAction, message |
 | **LLM Provider Policy** | Gemini (기본 고정), AGENT_MODEL_MODE="sk_only" 시 SK A.X | modelProvider(Gemini/Claude/SK A.X/OpenAI) 사용자 선택 존중 | Gemini (안정성 특화 서버 고정 지정 모델) |
 | **Tools** | None (의도 분석 전담) | `searchProducts`, `getProductDetail`, `checkStock`, `addToCart` | None (결제/주문취소/환불 직접 실행 도구 전면 금지) |
-| **RAG Sources** | None | `size_specs`, `faq_knowledge.json`, reviews | `docs/shopping-mall-chatbot-rag-agent.md#환불규정` |
-| **Prompt Summary** | 문의를 delivery/product/refund/other로 분류해 JSON 응답 | DB 데이터를 근거로 항상 한국어로 답변, 허구 금지 | 즉시 자동 환불 절대 불가 안내 및 관리자 심사 상태 신청 |
-| **Guardrails** | confidence 0.6 미만 시 clarification 되묻기 질문 리턴 | 품절 추천 금지, 개인/결제정보 마스킹, 모르면 상담원 유도 | 대화창 내 자동결제취소 차단, 내부 판단 코드 미노출 |
-| **Implementation Status** | **구현 완료 (MVP2)** | **구현 완료 (MVP2)** | **구현 완료 (MVP2)** |
+| **RAG Sources** | None | `product`, `product_detail`, `size_guide`, `review_summary`, `faq`, `brand_guide` | `refund_policy`, `return_policy` |
+| **Implementation Status** | **구현 완료 (MVP2)** | **구현 완료 (MVP3)** | **구현 완료 (MVP3)** |
 
 ---
 
@@ -122,26 +120,45 @@ graph TD
 - **정책 문서 Chunking**: 대제목/소제목 구조를 유지하는 **Parent-Child Chunking**을 적용하여 약 300~500 토큰 단위로 나눕니다. 문맥이 끊기지 않도록 50~100 토큰의 오버랩(Overlap) 영역을 설정합니다.
   - *Metadata*: `category` ("shipping" | "return" | "membership" | "faq"), `source` ("shopping-mall-pyd.md")
 
-### 4.2 Embedding & Vector DB 저장 (미구현)
-- **임베딩 모델**: OpenAI `text-embedding-3-small` (1536차원) 또는 동급의 한국어 지원 모델을 사용하여 텍스트 데이터를 벡터화할 예정입니다. **[미구현]**
-- **Vector DB 스키마**: Supabase PostgreSQL의 `pgvector` 확장을 사용하며, Prisma Schema 상에서 이를 관리할 수 있는 `VectorIndex` 모델을 제안합니다. **[미구현]**
+### 4.2 Embedding & Vector DB 저장 (MVP3 구현 완료)
 
-```prisma
-// 챗봇 RAG용 벡터 테이블 (미구현 - schema.prisma에 추가 및 마이그레이션 예정)
-model VectorIndex {
-  id        String   @id @default(cuid())
-  chunkId   String   @unique
-  content   String   // 실제 텍스트 내용
-  category  String   // product | policy | faq
-  metadata  Json     // 필터링용 메타데이터 (productId, price, color 등)
-  embedding Unsupported("vector(1536)")? // pgvector 매핑
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+- **임베딩 모델**: OpenAI `text-embedding-3-small` (1536차원, 기본) 또는 Gemini `text-embedding-004`
+- **환경변수**: `EMBEDDING_PROVIDER=openai|gemini`, `OPENAI_EMBEDDING_MODEL`, `GEMINI_EMBEDDING_MODEL`
+- **Vector DB**: Prisma schema에 vector 타입을 넣지 않고, `web/prisma/migrations/rag_pgvector_setup.sql`로 raw SQL 관리
 
-  @@index([category])
-}
+```sql
+-- rag_chunks 테이블 (source_type + source_id unique upsert)
+CREATE TABLE rag_chunks (
+  id TEXT PRIMARY KEY,
+  source_type TEXT NOT NULL,  -- product | product_detail | size_guide | review_summary | shipping_policy | return_policy | refund_policy | faq | brand_guide
+  source_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  metadata JSONB DEFAULT '{}',
+  embedding vector(1536),
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+);
 ```
-*(참고: Prisma에서 `Unsupported("vector(1536)")` 필드를 사용하고, 실제 조회 및 생성은 Raw Query(`$queryRaw`)로 처리합니다.)*
+
+- **인덱싱 실행**: `npm run rag:sync --prefix web` (`web/scripts/sync-vectors.ts`)
+- **검색 함수**: `match_rag_chunks(query_embedding, threshold, count, filter_source_type)` PostgreSQL RPC
+
+### 4.3 RAG 데이터 소스 (source_type)
+
+| source_type | 데이터 원본 | chunk 내용 |
+|---|---|---|
+| `product` | Product + ProductVariant | 상품명, 카테고리, 색상, 소재, 핏, 가격, 구매 가능 옵션 |
+| `product_detail` | Product | 상세 설명, 디자인 노트, 스타일링 노트 |
+| `size_guide` | SizeSpec + ModelFit | 실측 사이즈표, 모델 착용 정보 |
+| `review_summary` | Review | 평점, fitFeedback 분포, 대표 리뷰 요약 |
+| `shipping_policy` | 정책 문서 | 배송비, 소요일, 당일 출고 조건 |
+| `return_policy` | 정책 문서 | 교환/반품 접수 기간, 배송비 |
+| `refund_policy` | 정책 문서 | 환불 조건, 처리 기간 |
+| `faq` | FAQ 문서 | 질문/답변 단위 |
+| `brand_guide` | 브랜드 가이드 | SLOWEON 스타일, 톤, 코디 방향 |
+
+**인덱싱 제외**: User, Order, Payment, Address 등 개인정보/결제정보는 RAG에 포함하지 않음.
 
 ---
 
@@ -463,9 +480,15 @@ web/
 | **설계만 완료된 기능** | RAG/Agent 아키텍처 정립 | [`docs/shopping-mall-chatbot-rag-agent.md`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md) | **설계 완료** | 전체 시스템 구성도, 데이터 흐름, 로드맵, 예외 처리 설계 |
 | | RAG 정책 및 가드레일 정의 | [`docs/shopping-mall-chatbot-rag-agent.md#6-policy-layer`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md#L156) | **설계 완료** | 개인정보 마스킹, 상담원 Fallback, 품절 차단 가이드라인 수립 |
 | | Agent Tools 명세 기획 | [`docs/shopping-mall-chatbot-rag-agent.md#7-agent-tools`](file:///Users/6_month/sk-project/docs/shopping-mall-chatbot-rag-agent.md#L179) | **설계 완료** | `searchProducts` 등 7개 도구의 입출력 파라미터 규격 설정 |
-| **구현 필요한 기능** | Supabase pgvector 활성화 | [`web/prisma/schema.prisma`](file:///Users/6_month/sk-project/web/prisma/schema.prisma) | **미구현** | Supabase `vector` 확장 모듈 활성화 및 VectorIndex 마이그레이션 |
-| | 임베딩 및 인덱싱 파이프라인 | `web/scripts/sync-vectors.ts` | **미구현** | DB 상품 데이터 정기 추출, 임베딩 모델 호출 및 벡터 DB UPSERT 동기화 |
-| | 대화 기록/세션 DB 스키마 | `web/prisma/schema.prisma` | **미구현** | 대화 세션 및 히스토리 저장을 위한 Prisma 스키마 추가 및 배포 |
+| **구현 완료 (MVP3)** | pgvector RAG 테이블 | `web/prisma/migrations/rag_pgvector_setup.sql` | **구현 완료** | rag_chunks + match_rag_chunks, ivfflat 인덱스 |
+| | Embedding Provider | `web/src/lib/rag/embeddings.ts` | **구현 완료** | openai/gemini, sanitized errorCode |
+| | 인덱싱 파이프라인 | `web/scripts/sync-vectors.ts` | **구현 완료** | `npm run rag:sync --prefix web` |
+| | Retrieval & Hybrid | `web/src/lib/rag/retriever.ts`, `hybrid.ts` | **구현 완료** | DB filter + pgvector semantic search |
+| | Orchestrator RAG 연동 | `web/src/lib/agents/orchestrator.ts` | **구현 완료** | category별 RAG + productTools |
+| | RAG Health API | `/api/admin/rag-health` | **구현 완료** | pgvector/chunk stats/sample retrieval |
+| **미구현** | BM25 Sparse Search | — | **미구현** | PostgreSQL FTS + RRF 융합 |
+| | Cohere Rerank | — | **미구현** | Top-20 후보 재정렬 |
+| | 대화 기록/세션 DB | `web/prisma/schema.prisma` | **미구현** | ChatSession, ChatMessage |
 | **구현 완료된 기능 (MVP)** | LLM Route Handler API | [`web/src/app/api/chat/route.ts`](file:///Users/6_month/sk-project/web/src/app/api/chat/route.ts) | **구현 완료** | Vercel AI SDK + LLM Router 연동 및 Mock Fallback 탑재 완료 |
 | | 챗봇 프론트엔드 UI 컴포넌트 | [`web/src/components/chatbot/ChatBot.tsx`](file:///Users/6_month/sk-project/web/src/components/chatbot/ChatBot.tsx) | **구현 완료** | Floating Bubble UI, 메시지 리스트, 입력창, 상품 카드 파싱 렌더링 완료 |
 | | Agent Tools 실코드 랩핑 | [`web/src/lib/tools/productTools.ts`](file:///Users/6_month/sk-project/web/src/lib/tools/productTools.ts) | **구현 완료** | 4대 툴(Search, Detail, Stock, AddCart) Prisma & Server Action 연동 랩핑 완료 |
@@ -487,6 +510,82 @@ web/
 ### 13.2 보안 가드레일 정책
 *   **API Key 비노출**: 헬스 체크 API의 JSON 응답 본문 및 서버 로그에는 `OPENAI_API_KEY`, `GEMINI_API_KEY` 등 원본 API Key와 민감 인증 헤더가 **절대 노출되지 않고 마스킹** 처리됩니다.
 *   **접근 통제**: 일반 공개 환경에서 해커의 API 유추 공격을 막기 위해 `NODE_ENV === "development"` 개발 환경이거나 운영 배포에서 `ADMIN_TRACE_VIEWER_ENABLED=true` 환경변수가 주입되었을 때만 호출을 허용하며, 그 외에는 즉각 **403 Forbidden** 차단을 응답합니다.
+
+---
+
+## 14. MVP3 RAG 운영 가이드
+
+### 14.1 초기 설정
+
+1. Supabase SQL Editor 또는 `psql`로 마이그레이션 실행:
+   ```bash
+   psql $DATABASE_URL -f web/prisma/migrations/rag_pgvector_setup.sql
+   ```
+2. `.env`에 `OPENAI_API_KEY` (또는 `GEMINI_API_KEY`) 및 `EMBEDDING_PROVIDER` 설정
+3. 벡터 인덱싱:
+   ```bash
+   npm run rag:sync --prefix web
+   ```
+
+### 14.2 retriever.ts 사용 방식
+
+```typescript
+import { retrieveRagContext, retrievePolicyContext, retrieveProductContext } from "@/lib/rag/retriever";
+
+// 범용 검색
+const results = await retrieveRagContext("여름에 시원한 바지", { topK: 5, sourceType: "product" });
+
+// 정책 검색
+const shipping = await retrievePolicyContext("배송 얼마나 걸려?", "shipping_policy");
+
+// 상품 멀티소스 검색 (product + product_detail + size_guide + review_summary)
+const productCtx = await retrieveProductContext("사이즈 크게 나왔어?", { topK: 5 });
+```
+
+반환 형태: `{ sourceType, sourceId, title, score, contentPreview, metadata }`
+
+### 14.3 Hybrid Retrieval 정책
+
+| 질문 유형 | DB (productTools) | RAG |
+|---|---|---|
+| 가격/카테고리/색상/재고 | `searchProducts`, `checkStock` 우선 | 스타일·소재 설명 보조 |
+| 사이즈 고민 | `getProductDetail` (SizeSpec) | size_guide + review_summary |
+| 정책 문의 | — | shipping/return/refund_policy |
+| 스타일 추천 | 재고 있는 상품 필터 | product + brand_guide |
+
+품절 상품(`stock === 0`)은 Hybrid 결과에서 제외.
+
+### 14.4 Agent별 RAG 연결
+
+| Agent | RAG source_type | 비고 |
+|---|---|---|
+| Classification | 없음 | 의도 분류만 |
+| Answer (product) | product, product_detail, size_guide, review_summary | + productTools |
+| Answer (delivery) | shipping_policy | 정책 근거 없으면 확답 금지 |
+| Refund Decision | refund_policy, return_policy | 로그인/주문 없으면 requires_admin_review |
+| Answer (other) | faq, brand_guide | 근거 부족 시 fallback |
+
+### 14.5 Trace Viewer RAG 확인
+
+`/admin/agent-traces` Timeline: Input → Classification → **RAG Retrieval** → Tool Execution → Guardrails → Final Response
+
+RAG source 필드: `sourceType`, `sourceId`, `title`, `score`, `contentPreview`(200자), `usedByAgent`
+
+### 14.6 /api/admin/rag-health
+
+- 경로: `GET /api/admin/rag-health`
+- 접근: `NODE_ENV=development` 또는 `ADMIN_TRACE_VIEWER_ENABLED=true`
+- 응답: pgvectorExtension, totalChunks, chunksBySourceType, embeddingDimension, lastSyncTime, sampleRetrievalOk
+
+### 14.7 미구현 기능 및 리스크
+
+**미구현**: BM25 sparse search, Cohere rerank, Trace DB 영구 저장, 주문 조회 Tool, 채팅 세션 DB
+
+**리스크**:
+- pgvector 미설치 DB → RAG retrieval 빈 배열 fallback (챗봇은 동작하나 정책 근거 부족)
+- embedding API 키 없음 → sync/retrieval 실패 (sanitized errorCode 반환)
+- ivfflat 인덱스는 데이터 증가 시 recall 튜닝 필요
+- Gemini embedding(768dim)과 OpenAI(1536dim) 혼용 시 테이블 dimension 불일치 주의
 
 
 

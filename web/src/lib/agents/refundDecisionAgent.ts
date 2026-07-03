@@ -1,8 +1,13 @@
 import { routeLLMRequest } from "../llm/router";
-import { REFUND_SYSTEM_PROMPT } from "./prompts";
+import { buildRefundPromptWithContext } from "./prompts";
+import type { RagContextItem } from "../rag/retriever";
 
 export interface RefundDecisionOutput {
-  decision: "refundable" | "conditionally_refundable" | "not_refundable" | "requires_admin_review";
+  decision:
+    | "refundable"
+    | "conditionally_refundable"
+    | "not_refundable"
+    | "requires_admin_review";
   reason: string;
   requiredAdminAction: string;
   customerFacingMessage: string;
@@ -10,31 +15,50 @@ export interface RefundDecisionOutput {
 
 export async function runRefundDecisionAgent(
   customerMessage: string,
-  sessionInfo: { userId?: string; orderId?: string }
+  sessionInfo: { userId?: string; orderId?: string },
+  ragContext: RagContextItem[] = []
 ): Promise<RefundDecisionOutput> {
-  // 1. 모델 정책: 비즈니스 리스크 방지를 위해 서버 고정 지정 모델 (gemini) 사용
   const targetProvider = "gemini";
-  
-  const systemPrompt = REFUND_SYSTEM_PROMPT;
-  
-  // 세션 및 상태 컨텍스트 주입
-  const contextMessage = `[User Message] ${customerMessage}
-[Context Info]
-- userId: ${sessionInfo.userId || "GUEST"}
-- orderId: ${sessionInfo.orderId || "NOT_PROVIDED"}
-- paymentStatus: PAID
-- shippingStatus: PREPARING (배송 준비 중 상태 - 반품 가능 범위)
-- refundPolicyUrl: docs/shopping-mall-chatbot-rag-agent.md`;
 
-  const messages = [{ role: "user" as const, content: contextMessage }];
+  const hasSession =
+    sessionInfo.userId && sessionInfo.userId !== "GUEST";
+  const hasOrder = !!sessionInfo.orderId;
+
+  // No login/order context → safe fallback without LLM 확정 판정
+  if (!hasSession || !hasOrder) {
+    return {
+      decision: "requires_admin_review",
+      reason:
+        "로그인 또는 주문 정보가 없어 챗봇에서 환불 가능 여부를 확정할 수 없음",
+      requiredAdminAction: "고객 주문 내역 확인 및 반품/환불 요청 수동 검토",
+      customerFacingMessage:
+        "환불·반품 가능 여부는 주문 상태 확인이 필요합니다. 마이페이지(/mypage)에서 주문 내역을 확인하시거나, 고객센터 1:1 문의를 통해 접수해 주시면 담당자가 검토 후 안내드리겠습니다. 챗봇에서는 자동 환불·결제취소 처리가 불가합니다.",
+    };
+  }
+
+  const systemPrompt = buildRefundPromptWithContext({
+    customerMessage,
+    sessionInfo,
+    ragContext,
+  });
+
+  const messages = [
+    {
+      role: "user" as const,
+      content: customerMessage,
+    },
+  ];
 
   try {
     const response = await routeLLMRequest(targetProvider, {
       systemPrompt,
-      messages
+      messages,
     });
 
-    let cleanContent = response.content.replace(/```json/gi, "").replace(/```/g, "").trim();
+    let cleanContent = response.content
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .trim();
     const firstBrace = cleanContent.indexOf("{");
     const lastBrace = cleanContent.lastIndexOf("}");
     if (firstBrace !== -1 && lastBrace !== -1) {
@@ -42,15 +66,30 @@ export async function runRefundDecisionAgent(
     }
 
     const parsed: RefundDecisionOutput = JSON.parse(cleanContent);
+
+    // Guardrail: never auto-refund messaging that implies immediate action
+    if (
+      parsed.decision === "refundable" ||
+      parsed.decision === "conditionally_refundable"
+    ) {
+      parsed.customerFacingMessage =
+        parsed.customerFacingMessage +
+        "\n\n※ 실제 환불·결제취소는 관리자 승인 및 상품 입고 확인 후 처리됩니다.";
+    }
+
     return parsed;
-  } catch (err) {
-    // LLM 호출 실패 시의 안전 Fallback 판정 (무조건 관리자 수동 검토 안내로 격리)
-    console.warn("Refund Decision Agent LLM/Parsing failed, using fallback decision.");
+  } catch {
+    console.warn(
+      "Refund Decision Agent LLM/Parsing failed, using fallback decision."
+    );
     return {
       decision: "requires_admin_review",
-      reason: "환불 에이전트 LLM 분석 지연에 따른 관리자 수동 검수 이관 (Fallback)",
-      requiredAdminAction: "주문 내역 및 결제 취소 요청 상태 수동 검토 요망",
-      customerFacingMessage: "고객님의 환불/반품 요청은 시스템에 안전하게 기록되었습니다. 담당 부서에서 영업일 기준 1일 이내에 주문 정보를 정밀 검토한 후 환불 진행 문자를 송부해 드리겠습니다. (실제 즉각 자동 환불 및 취소 처리는 보안 규정상 금지되어 있습니다)"
+      reason:
+        "환불 에이전트 분석 지연에 따른 관리자 수동 검수 이관 (Fallback)",
+      requiredAdminAction:
+        "주문 내역 및 결제 취소 요청 상태 수동 검토 요망",
+      customerFacingMessage:
+        "고객님의 환불/반품 요청은 시스템에 안전하게 기록되었습니다. 담당 부서에서 영업일 기준 1일 이내에 주문 정보를 검토한 후 안내드리겠습니다. (챗봇에서 자동 환불·결제취소는 보안 규정상 불가합니다)",
     };
   }
 }
