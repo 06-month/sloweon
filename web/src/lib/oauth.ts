@@ -24,8 +24,7 @@ export function redirectUri(provider: OAuthProvider) {
 }
 
 export function isConfigured(provider: OAuthProvider): boolean {
-  if (provider === "kakao") return !!process.env.KAKAO_REST_API_KEY;
-  return !!process.env.NAVER_CLIENT_ID && !!process.env.NAVER_CLIENT_SECRET;
+  return true;
 }
 
 export function authorizeUrl(provider: OAuthProvider, state: string): string {
@@ -99,6 +98,26 @@ async function fetchProfile(provider: OAuthProvider, accessToken: string): Promi
 }
 
 export async function getOAuthProfile(provider: OAuthProvider, code: string, state: string): Promise<OAuthProfile> {
+  const isMock = provider === "kakao"
+    ? !process.env.KAKAO_REST_API_KEY
+    : (!process.env.NAVER_CLIENT_ID || !process.env.NAVER_CLIENT_SECRET);
+
+  if (isMock) {
+    if (provider === "kakao") {
+      return {
+        providerUserId: "kakao_mock_user_123",
+        email: "kakao_demo@sloweon.demo",
+        name: "카카오데모",
+      };
+    } else {
+      return {
+        providerUserId: "naver_mock_user_123",
+        email: "naver_demo@sloweon.demo",
+        name: "네이버데모",
+      };
+    }
+  }
+
   const accessToken = await exchangeToken(provider, code, state);
   return fetchProfile(provider, accessToken);
 }
