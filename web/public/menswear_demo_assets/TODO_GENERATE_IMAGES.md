@@ -3,8 +3,8 @@
 Status: partial
 
 - Expected images: 120
-- Generated images present: 104
-- Missing images: 16
+- Generated images present: 120
+- Missing images: 0
 
 ## Reason
 
@@ -111,33 +111,33 @@ If any generated image contains a visible logo, brand mark, clothing label, neck
 - `bottoms/bottom_11/detail_image.png`
 - `bottoms/bottom_11/worn_image.png`
 - `bottoms/bottom_11/lookbook_image.png`
+- `bottoms/bottom_12/detail_image.png`
+- `bottoms/bottom_12/worn_image.png`
+- `bottoms/bottom_12/lookbook_image.png`
 - `bottoms/bottom_13/detail_image.png`
 - `bottoms/bottom_13/worn_image.png`
 - `bottoms/bottom_13/lookbook_image.png`
+- `bottoms/bottom_14/detail_image.png`
+- `bottoms/bottom_14/worn_image.png`
+- `bottoms/bottom_14/lookbook_image.png`
 - `bottoms/bottom_15/detail_image.png`
 - `bottoms/bottom_15/worn_image.png`
 - `bottoms/bottom_15/lookbook_image.png`
 - `bottoms/bottom_16/detail_image.png`
-- `bottoms/bottom_18/detail_image.png`
-- `bottoms/bottom_18/worn_image.png`
-- `bottoms/bottom_18/lookbook_image.png`
-- `bottoms/bottom_19/detail_image.png`
-
-## Missing Images
-
-- `bottoms/bottom_12/detail_image.png`
-- `bottoms/bottom_12/worn_image.png`
-- `bottoms/bottom_12/lookbook_image.png`
-- `bottoms/bottom_14/detail_image.png`
-- `bottoms/bottom_14/worn_image.png`
-- `bottoms/bottom_14/lookbook_image.png`
 - `bottoms/bottom_16/worn_image.png`
 - `bottoms/bottom_16/lookbook_image.png`
 - `bottoms/bottom_17/detail_image.png`
 - `bottoms/bottom_17/worn_image.png`
 - `bottoms/bottom_17/lookbook_image.png`
+- `bottoms/bottom_18/detail_image.png`
+- `bottoms/bottom_18/worn_image.png`
+- `bottoms/bottom_18/lookbook_image.png`
+- `bottoms/bottom_19/detail_image.png`
 - `bottoms/bottom_19/worn_image.png`
 - `bottoms/bottom_19/lookbook_image.png`
 - `bottoms/bottom_20/detail_image.png`
 - `bottoms/bottom_20/worn_image.png`
 - `bottoms/bottom_20/lookbook_image.png`
+
+## Missing Images
+
