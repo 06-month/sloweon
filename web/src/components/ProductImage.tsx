@@ -1,16 +1,17 @@
+import Image from "next/image";
 import { assetExists, assetUrl } from "@/lib/assets";
 import { colorHex } from "@/lib/format";
 
 /**
- * 상품 이미지. 아직 생성되지 않은 이미지는 상품 색상 기반 placeholder로 표시한다.
- * 이미지 파일이 menswear_demo_assets에 추가되면 다음 요청부터 자동 노출된다.
+ * 상품 이미지 — next/image로 최적화(WebP/AVIF 변환·뷰포트 크기 리사이즈).
+ * 아직 생성되지 않은 이미지는 상품 색상 기반 placeholder로 표시한다.
  */
 export function ProductImage({
   imagePath,
   alt,
   color,
   className = "",
-  sizes,
+  sizes = "(max-width: 768px) 50vw, 320px",
 }: {
   imagePath: string;
   alt: string;
@@ -20,14 +21,15 @@ export function ProductImage({
 }) {
   if (assetExists(imagePath)) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={assetUrl(imagePath)}
-        alt={alt}
-        loading="lazy"
-        sizes={sizes}
-        className={`h-full w-full object-cover ${className}`}
-      />
+      <div className="relative h-full w-full">
+        <Image
+          src={assetUrl(imagePath)}
+          alt={alt}
+          fill
+          sizes={sizes}
+          className={`object-cover ${className}`}
+        />
+      </div>
     );
   }
   return (

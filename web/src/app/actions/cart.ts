@@ -44,7 +44,6 @@ export async function addToCart(_prev: CartActionState, formData: FormData): Pro
   const error = await upsertCartItem(variantId, quantity);
   if (error) return { error };
   revalidatePath("/cart");
-  revalidatePath("/", "layout");
   return { ok: true };
 }
 
@@ -65,7 +64,6 @@ export async function addOutfitToCart(_prev: CartActionState, formData: FormData
     }
   }
   revalidatePath("/cart");
-  revalidatePath("/", "layout");
   return { ok: true };
 }
 
@@ -84,7 +82,28 @@ export async function updateCartQuantity(formData: FormData) {
     await prisma.cartItem.update({ where: { id: itemId }, data: { quantity: nextQty } });
   }
   revalidatePath("/cart");
-  revalidatePath("/", "layout");
+}
+
+/** 선택 주문 체크 토글 — 체크된 항목만 주문서로 진입한다 */
+export async function toggleCartItemSelected(formData: FormData) {
+  const itemId = String(formData.get("itemId") ?? "");
+  const owner = await ownerWhere();
+  const item = await prisma.cartItem.findUnique({ where: { id: itemId } });
+  if (!item) return;
+  const isOwner = owner.userId ? item.userId === owner.userId : item.guestSessionId === owner.guestSessionId;
+  if (!isOwner) return;
+  await prisma.cartItem.update({ where: { id: itemId }, data: { selected: !item.selected } });
+  revalidatePath("/cart");
+}
+
+export async function setAllCartSelected(formData: FormData) {
+  const selected = formData.get("selected") === "true";
+  const owner = await ownerWhere();
+  await prisma.cartItem.updateMany({
+    where: owner.userId ? { userId: owner.userId } : { guestSessionId: owner.guestSessionId },
+    data: { selected },
+  });
+  revalidatePath("/cart");
 }
 
 export async function removeCartItem(formData: FormData) {
@@ -96,5 +115,4 @@ export async function removeCartItem(formData: FormData) {
   if (!isOwner) return;
   await prisma.cartItem.delete({ where: { id: itemId } });
   revalidatePath("/cart");
-  revalidatePath("/", "layout");
 }

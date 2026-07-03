@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { prisma } from "@/lib/db";
 import {
   assetExists,
@@ -13,12 +14,23 @@ import { ProductCard } from "@/components/ProductCard";
 import { ProductImage } from "@/components/ProductImage";
 import { won, effectivePrice } from "@/lib/format";
 
-/** 메인 비주얼 슬롯 — 파일이 있으면 이미지, 없으면 무지 배경으로 폴백 */
-function OverviewImage({ path, alt, className = "" }: { path: string; alt: string; className?: string }) {
+/** 메인 비주얼 슬롯 — 파일이 있으면 next/image 최적화 이미지, 없으면 무지 배경으로 폴백 */
+function OverviewImage({
+  path,
+  alt,
+  className = "",
+  sizes = "(max-width: 768px) 100vw, 1152px",
+}: {
+  path: string;
+  alt: string;
+  className?: string;
+  sizes?: string;
+}) {
   if (assetExists(path)) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={assetUrl(path)} alt={alt} loading="lazy" className={`h-full w-full object-cover ${className}`} />
+      <div className="relative h-full w-full">
+        <Image src={assetUrl(path)} alt={alt} fill sizes={sizes} className={`object-cover ${className}`} />
+      </div>
     );
   }
   return <div aria-hidden className={`h-full w-full bg-sand/40 ${className}`} />;
@@ -62,11 +74,14 @@ export default async function HomePage() {
       <section className="relative border-b hairline">
         {heroReady ? (
           <div className="relative h-[72vh] min-h-[440px] w-full overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            {/* LCP 요소 — priority로 즉시 로드, next/image가 WebP 변환·리사이즈 */}
+            <Image
               src={assetUrl(HERO_IMAGE_PATH)}
               alt="Quiet City Summer 2026 캠페인 — 린넨 셔츠와 아이보리 와이드 트라우저"
-              className="h-full w-full object-cover object-[center_30%]"
+              fill
+              priority
+              sizes="100vw"
+              className="object-cover object-[center_30%]"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-ink/45 via-transparent to-transparent" />
             <div className="absolute inset-x-0 bottom-0 p-8 text-white md:p-14">

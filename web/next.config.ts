@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // 이미지는 next/image로 최적화(WebP 변환·리사이즈) — 2MB PNG 원본 전송 방지
   images: {
-    // 데모 이미지는 /api/assets 라우트로 서빙되며 로컬 파일이므로 최적화 파이프라인 없이 그대로 사용
-    unoptimized: true,
+    formats: ["image/avif", "image/webp"],
   },
 };
 

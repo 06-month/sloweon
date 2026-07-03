@@ -1,5 +1,411 @@
 # 구현 진행 기록
 
+## 2026-07-03 - 배포 사이트 성능 개선 (버튼 반응·페이지 전환 지연 원인 분석 및 수정)
+
+### 증상과 원인 분석
+
+사용자 보고: 배포 사이트에서 페이지 전환과 장바구니 +/− 반영이 매우 느림. 원인 4가지 확인:
+
+1. (주범) 리전 불일치 — vercel.json 없음 → Vercel 함수 기본 리전 미국 워싱턴(iad1), Supabase는 서울. 전 라우트가 dynamic이라 요청마다 세션+데이터 조회 3~8쿼리 × 태평양 왕복 ~200ms = 페이지당 1초+. 서버 액션도 한국→미국→한국 경로
+2. 카트 액션마다 revalidatePath("/", "layout")로 전체 레이아웃 무효화 — 서버 액션은 현재 페이지 RSC를 자동 갱신하므로 불필요한 비용
+3. 낙관적 UI 부재 — +/−, 체크박스가 서버 왕복 완료까지 무반응
+4. 이미지 무최적화 — images.unoptimized:true로 2MB PNG 원본 전송 (홈 한 페이지 수십 MB)
+
+### 수정 내용
+
+- web/vercel.json 추가: regions ["icn1"](서울) — 함수를 DB 옆에서 실행 (재배포 필요)
+- cart.ts의 revalidatePath("/", "layout") 전부 제거 (경로별 revalidate만 유지)
+- CartControls.tsx 신설: QuantityControl/SelectToggle/SelectAllToggle/RemoveButton을 useOptimistic+useTransition 기반으로 구현 — 클릭 즉시 화면 반영, 서버 동기화는 백그라운드. cart/page.tsx의 form 기반 컨트롤 교체
+- 이미지 최적화 활성화: next.config에서 unoptimized 제거(AVIF/WebP), ProductImage·OverviewImage·홈 히어로를 next/image(fill+sizes, 히어로는 priority)로 전환
+
+### 검증
+
+- tsc/next build 통과. 홈 HTML이 /_next/image 최적화 URL 사용 확인
+- 히어로 이미지 실측: 원본 PNG 2,157KB → 최적화 WebP 70KB (97% 감소)
+- 장바구니 렌더 정상. 낙관적 UI는 로컬에서 즉시 반영 동작
+- 리전 변경은 푸시+재배포 후 적용됨 (Vercel 대시보드 Settings→Functions에서 icn1 확인 가능). 사용자 지시로 푸시는 보류
+
+## 2026-07-03 - Vercel 배포 대응 + 장바구니 선택 주문
+
+### 작업 목표
+
+Vercel+Supabase 배포 시 깨지는 지점을 수정하고, 장바구니 선택 주문(체크된 상품만 주문서 진입, 기획서 7.5)을 구현했다.
+
+### Vercel 대응 (푸시 전 필수 수정이었던 것)
+
+- 문제: `/api/assets` 라우트와 `assetExists()`가 fs로 public/ 파일을 읽는 구조 — Vercel 서버리스 함수 번들에는 public/ 파일이 포함되지 않아 배포 시 모든 상품 이미지가 폴백(placeholder)으로 표시될 상황이었다
+- 수정: 이미지 URL을 CDN 정적 경로(`/menswear_demo_assets/...`, `/overview-image/...`)로 전환하고 `/api/assets` 라우트 삭제. 존재 여부 판정은 빌드 시 생성하는 `src/generated/asset-manifest.json`(scripts/generate-asset-manifest.mjs, build/dev 스크립트에 연결)으로 대체 — dev에서는 fs 실시간 확인 유지(이미지 워커 병행 대응)
+- DATABASE_URL을 세션 풀러(5432)에서 트랜잭션 풀러(6543, pgbouncer=true&connection_limit=1)로 변경 — 서버리스 커넥션 고갈 방지. 연결 검증 완료. 스키마 push는 5432로 임시 오버라이드해 실행
+- 배포 시 사용자 설정 필요 항목: Vercel Root Directory=web, 환경변수(DATABASE_URL/NEXT_PUBLIC_APP_URL/토스/카카오/네이버 키) 대시보드 등록, NEXT_PUBLIC_APP_URL을 프로덕션 도메인으로 + 카카오/네이버/토스 콘솔에 프로덕션 콜백 URL 추가
+
+### 장바구니 선택 주문 (사용자 요청)
+
+- CartItem.selected(기본 true) 추가 후 Supabase push
+- 장바구니: 항목별 체크박스(미선택 시 흐림 처리) + 전체 선택/해제, 금액 요약·재고 검증·주문 버튼을 선택 항목 기준으로 변경, "선택 상품 주문하기 (n)" 표기
+- 주문서/prepareOrder/placeOrder를 getSelectedCartItems 기준으로 전환
+- 버그 수정: 토스 승인 라우트의 장바구니 비우기가 전체 삭제(deleteMany userId)여서 미선택 상품까지 지워질 상황 — 주문에 포함된 variantId만 삭제하도록 수정
+
+### 검증
+
+- tsc/next build 통과, 홈 HTML의 이미지 src가 정적 경로로 출력됨, 정적 이미지 200, 프로덕션 모드에서 매니페스트 기반 폴백 동작, 6543 풀러로 페이지 렌더 정상
+- 선택 주문: 카트 2건 중 1건만 selected일 때 주문 대상 1건만 산출됨을 DB 레벨로 확인, 테스트 데이터 정리 완료
+- 사용자 지시로 git push는 하지 않음
+
+## 2026-07-03 - 토스페이먼츠 연동 마무리 + 카카오/네이버 로그인 구현
+
+### 작업 목표
+
+사용자가 직접 진행한 토스페이먼츠 연동(prepareOrder 가주문, SDK 결제창, 승인/실패 라우트)을 검토·마무리하고, 카카오/네이버 소셜 로그인을 구현했다. 사용자가 병행한 인프라 변경(SQLite→Supabase Postgres, 에셋 public/ 이동)도 확인했다.
+
+### 관련 요구사항
+
+O-006(PG 결제 연동), O-007(중복 결제 방지), BE-007(결제 멱등성), C-011(소셜 로그인), M-001(신규 회원 쿠폰)
+
+### 확인한 기존 작업 (사용자 직접 구현)
+
+- DB를 Supabase Postgres로 전환(스키마 push + 시드 완료: 상품 40/회원 3/쿠폰 1), 이미지 에셋을 web/public/으로 이동(assets.ts 루트 갱신됨)
+- 토스 연동: prepareOrder(PENDING 가주문 + Payment READY + 쿠폰 orderId 선점) → 클라이언트 SDK requestPayment → /api/payment/toss/success(금액 대조→confirm API→트랜잭션으로 재고 차감·PAID 전환·쿠폰/포인트 확정, DB 실패 시 토스 자동 취소) → /api/payment/toss/fail(가주문 취소·쿠폰 복원) + /checkout/fail 페이지. 이미 PAID면 success로 리다이렉트해 중복 승인 방지(O-007) 충족
+
+### 이번에 구현/수정한 것
+
+- 토스 마무리: 하드코딩된 클라이언트/시크릿 키를 .env(NEXT_PUBLIC_TOSS_CLIENT_KEY, TOSS_SECRET_KEY)로 이동하고 코드 fallback 제거(미설정 시 명시적 오류). 결제창을 닫고 재시도할 때 남는 회원의 버려진 PENDING 가주문을 prepareOrder 진입 시 자동 정리(CANCELLED + 쿠폰 링크 해제). 결제수단 안내 문구를 토스 테스트 결제 기준으로 갱신
+- 소셜 로그인: OAuthAccount 모델 추가(provider+providerUserId unique), User.passwordHash nullable로 변경 후 Supabase push. lib/oauth.ts(카카오/네이버 authorize/token/profile), /api/auth/[provider]/start(state 쿠키 CSRF 방지, next 저장) + /callback(state 검증→프로필→이메일 매칭 시 기존 계정 연결/신규 생성+웰컴 쿠폰→세션+게스트 카트 병합). 카카오 이메일 미제공 시 placeholder 이메일 사용. 로그인/가입 페이지에 브랜드 컬러 소셜 버튼, 미설정 프로바이더는 안내 메시지로 리다이렉트. 이메일 로그인 시 소셜 전용 계정(passwordHash null) 가드 추가
+
+### 실행한 명령어와 결과
+
+- `prisma db push`(Supabase) 통과, `tsc --noEmit`/`next build` 통과(21 라우트)
+- 포트 3000 스모크: 로그인 페이지 소셜 버튼 렌더, 카카오 미설정 시 안내 리다이렉트, 잘못된 provider 차단, Supabase 데이터로 홈/PDP 200, public 이동 후 이미지 서빙 200
+
+### 남은 작업 (사용자 입력 필요)
+
+- 토스 키 확인: .env로 옮긴 test_ck_qbg2…/test_sk_Z61g…가 사용자 본인의 토스 테스트 키인지 확인
+- 카카오 developers 앱의 REST API 키 + Redirect URI(http://localhost:3000/api/auth/kakao/callback) 등록 + 동의항목(닉네임/이메일)
+- 네이버 developers 앱의 Client ID/Secret + Callback URL(http://localhost:3000/api/auth/naver/callback) 등록
+- 키 수령 후 실제 카카오/네이버 로그인 및 토스 테스트 결제 브라우저 QA
+
+## 2026-07-03 09:52 KST - Image Worker 5 하의 이미지 생성 시작
+
+### 작업 목표
+
+`menswear_demo_assets/bottoms/bottom_18`, `bottom_19`, `bottom_20`의 누락된 `detail_image.png`, `worn_image.png`, `lookbook_image.png` 총 9개 이미지를 생성한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- `docs/shopping-mall-pyd.md`: PD-001 대표/상세/착용 이미지, PD-005 모델 착용 정보, P-007 룩북 탐색, P-008 코디 세트 탐색, NF-002 이미지 품질/성능 요구 확인.
+- `docs/shopping-mall-planning.md`: 상품 상세, 룩북, 이미지 정책에서 대표/착용/디테일 이미지 필요성 확인.
+- `docs/customer-personas.md`: 김도현/박준서/이태오/최민재의 룩북, 착용컷, 사이즈 판단, 신뢰 관점 확인.
+- `docs/information-architecture.md`: 상품 상세와 룩북 상세 핵심 데이터에 이미지가 포함됨 확인.
+- `docs/user-scenarios.md`: S-004 사이즈 확인 구매, S-005 룩북 코디 세트 구매 흐름 확인.
+- `menswear_demo_assets/docs/image_generation_prompts.json`: `bottom_18`, `bottom_19`, `bottom_20`의 exact prompt 확인.
+- `menswear_demo_assets/bottoms/bottom_18/metadata.json`, `bottom_19/metadata.json`, `bottom_20/metadata.json`: 저장 경로 확인.
+
+### 현재 계획
+
+- exact prompt text를 변경하지 않고 built-in image generation 도구를 사용한다.
+- 대상 9개 PNG가 존재하지 않음을 확인한 뒤에만 저장한다.
+- 생성 결과에 로고, 브랜드 마크, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼이 보이면 실패로 처리하고 최대 3회 재생성한다.
+- placeholder와 zip 파일은 만들지 않는다.
+
+### 실행한 명령어와 결과 요약
+
+- `wc -l ...`: 필수 문서와 prompt JSON, 대상 메타데이터 분량 확인.
+- `ls -la plan.md process.md ...`: `plan.md`, `process.md` 존재 및 대상 폴더 상태 확인.
+- `sed -n ...`: 필수 제품/기획/페르소나/IA/시나리오 문서, 이미지 생성 스킬, 대상 메타데이터, prompt JSON의 대상 프롬프트 확인.
+- `find ... -name '*.png'`: 대상 3개 폴더에 기존 PNG가 없어 overwrite 위험이 없음을 확인.
+- `git status --short -- ...`: 현재 작업 전 `plan.md`, `process.md`가 이미 수정 상태임을 확인하고 기존 변경을 보존한 채 Image Worker 5 항목만 추가.
+- built-in `image_gen`: `bottom_18`, `bottom_19`, `bottom_20`의 detail/worn/lookbook 이미지를 각 exact prompt로 1회씩 생성.
+- `view_image`: 9개 생성 후보를 육안 검사. 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 없음.
+- `cp -n ...`: 통과한 9개 PNG를 metadata 경로에 no-overwrite 방식으로 복사.
+- `file ...`: 9개 대상 파일이 PNG 형식임을 확인.
+
+### 구현한 변경 사항
+
+- 생성 및 저장:
+  - `menswear_demo_assets/bottoms/bottom_18/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_18/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_18/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_19/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_19/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_19/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_20/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_20/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_20/lookbook_image.png`
+- 문서 갱신:
+  - `plan.md`: Image Worker 5 범위와 체크리스트 완료 상태 반영.
+  - `process.md`: 작업 시작, 생성 결과, 검증 결과 기록.
+
+### 테스트/검증 결과
+
+- 대상 9개 파일 모두 존재 확인.
+- `file` 결과 모두 `PNG image data`로 확인.
+- strict visual rule 실패 없음. 재생성 0회.
+- placeholder 및 zip 파일 생성/수정 없음.
+
+### 발견한 문제와 처리 상태
+
+- 처리 중 다른 워커가 `process.md` 상단을 갱신해 첫 patch가 실패했다. 파일을 다시 읽고 Image Worker 5 섹션만 prepend하여 기존 변경을 보존했다.
+
+### 남은 작업
+
+- 없음.
+
+## 2026-07-03 09:51 KST - Image Worker 3 하의 이미지 생성 착수
+
+### 작업 목표
+
+`menswear_demo_assets/bottoms/bottom_13` 및 `menswear_demo_assets/bottoms/bottom_14`에 누락된 `detail_image.png`, `worn_image.png`, `lookbook_image.png` 6개를 생성한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- 필수 문서: `docs/shopping-mall-pyd.md`, `docs/shopping-mall-planning.md`, `docs/customer-personas.md`, `docs/information-architecture.md`, `docs/user-scenarios.md`
+- 이미지 문서: `menswear_demo_assets/docs/image_generation_prompts.json`
+- 상품 메타데이터: `menswear_demo_assets/bottoms/bottom_13/metadata.json`, `menswear_demo_assets/bottoms/bottom_14/metadata.json`
+- 관련 요구사항 ID: PD-001, PD-005, P-007, P-008
+
+### 현재 상태
+
+- `bottom_13`, `bottom_14` 폴더에는 `metadata.json`만 있고 대상 PNG 6개는 모두 누락 상태임을 확인했다.
+- 정확한 생성 프롬프트는 `image_generation_prompts.json`의 `bottom_13`, `bottom_14` 항목을 기준으로 사용한다.
+- 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼이 보이면 실패로 처리하고 동일 프롬프트로 최대 3회 재생성한다.
+- 다른 상품 폴더, zip 파일, 메타데이터/프롬프트 문서는 수정하지 않는다.
+
+### 실행한 명령어와 결과 요약
+
+- `sed -n ...`: imagegen skill 및 필수 기획 문서 확인.
+- `find menswear_demo_assets/bottoms/bottom_13 menswear_demo_assets/bottoms/bottom_14 -maxdepth 1 -type f -print`: 대상 폴더의 기존 파일이 `metadata.json`뿐임을 확인.
+- `jq '.bottom_13, .bottom_14' menswear_demo_assets/docs/image_generation_prompts.json`: 대상 상품의 정확한 프롬프트 확인.
+- built-in image generation: `bottom_13/detail_image.png`, `bottom_13/worn_image.png`, `bottom_13/lookbook_image.png`, `bottom_14/detail_image.png`, `bottom_14/worn_image.png`, `bottom_14/lookbook_image.png` 6개를 exact prompt로 생성.
+- `view_image`: 6개 생성물 모두 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼이 보이지 않음을 육안 확인.
+- `cp -n ...`: 통과한 생성물을 각 metadata 경로에 no-overwrite로 복사.
+- `file ...`: 6개 대상 파일 모두 PNG 형식 확인.
+
+### 구현한 변경 사항
+
+- 생성 완료:
+  - `menswear_demo_assets/bottoms/bottom_13/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_13/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_13/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_14/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_14/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_14/lookbook_image.png`
+
+### 테스트/검증 결과
+
+- PNG 확인 결과:
+  - `bottom_13/detail_image.png`: 1086 x 1448 PNG
+  - `bottom_13/worn_image.png`: 1024 x 1536 PNG
+  - `bottom_13/lookbook_image.png`: 1024 x 1536 PNG
+  - `bottom_14/detail_image.png`: 1122 x 1402 PNG
+  - `bottom_14/worn_image.png`: 1024 x 1536 PNG
+  - `bottom_14/lookbook_image.png`: 1024 x 1536 PNG
+- strict visual rule 실패 없음. 재생성 0회.
+
+### 남은 작업
+
+- Image Worker 3 범위에서는 남은 작업 없음.
+
+## 2026-07-03 09:52 KST - Image Worker 4 하의 이미지 생성 시작
+
+### 작업 목표
+
+`menswear_demo_assets/bottoms/bottom_15`, `bottom_16`, `bottom_17`의 누락된 `detail_image.png`, `worn_image.png`, `lookbook_image.png` 총 9개 이미지를 생성한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- `docs/shopping-mall-pyd.md`: PD-001 대표/상세/착용 이미지, PD-005 모델 착용 정보, P-007 룩북 탐색, P-008 코디 세트 탐색, NF-002 이미지 품질/성능 요구 확인.
+- `docs/shopping-mall-planning.md`: 상품 상세, 룩북, 이미지 정책에서 대표/착용/디테일 이미지 필요성 확인.
+- `docs/customer-personas.md`: 김도현/박준서/이태오/최민재의 룩북, 착용컷, 사이즈 판단, 신뢰 관점 확인.
+- `docs/information-architecture.md`: 상품 상세와 룩북 상세 핵심 데이터에 이미지가 포함됨 확인.
+- `docs/user-scenarios.md`: S-004 사이즈 확인 구매, S-005 룩북 코디 세트 구매 흐름 확인.
+- `menswear_demo_assets/docs/image_generation_prompts.json`: `bottom_15`, `bottom_16`, `bottom_17`의 exact prompt 확인.
+- `menswear_demo_assets/bottoms/bottom_15/metadata.json`, `bottom_16/metadata.json`, `bottom_17/metadata.json`: 저장 경로 확인.
+
+### 현재 계획
+
+- exact prompt text를 변경하지 않고 built-in image generation 도구를 사용한다.
+- 대상 9개 PNG가 존재하지 않음을 확인한 뒤에만 저장한다.
+- 생성 결과에 로고, 브랜드 마크, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼이 보이면 실패로 처리하고 최대 3회 재생성한다.
+- placeholder와 zip 파일은 만들지 않는다.
+
+### 실행한 명령어와 결과 요약
+
+- `wc -l ...`: 필수 문서와 prompt JSON, `plan.md`, `process.md` 존재 확인.
+- `find menswear_demo_assets/bottoms/bottom_15 ... -name '*.png'`: 대상 폴더에 기존 PNG가 없어 overwrite 위험이 없음을 확인.
+- `sed -n ...`: 필수 제품/기획/페르소나/IA/시나리오 문서 확인.
+- `jq '{bottom_15, bottom_16, bottom_17}' menswear_demo_assets/docs/image_generation_prompts.json`: 대상 9개 exact prompt 확인.
+- `sed -n ... metadata.json`: `bottom_15`, `bottom_16`, `bottom_17` 메타데이터와 경로 확인.
+- built-in image generation: `bottom_15/detail_image.png` 1차 생성물에서 작은 내부 태그/라벨 형태가 보여 strict visual rule 실패로 처리하고 같은 exact prompt로 2차 생성, 2차 생성물 저장.
+- built-in image generation: `bottom_15/worn_image.png`, `bottom_15/lookbook_image.png` 1차 생성물 strict visual rule 통과 후 저장.
+- `cp -n ...`: 통과한 생성물을 `bottom_15` metadata 경로 3곳에 no-overwrite로 복사.
+- `file menswear_demo_assets/bottoms/bottom_15/*.png`: 3개 파일 모두 PNG 형식 확인.
+- built-in image generation: `bottom_16/detail_image.png`, `bottom_16/worn_image.png`, `bottom_16/lookbook_image.png` 1차 생성물 strict visual rule 통과 후 저장.
+- `cp -n ...`: 통과한 생성물을 `bottom_16` metadata 경로 3곳에 no-overwrite로 복사.
+- `file menswear_demo_assets/bottoms/bottom_16/*.png`: 3개 파일 모두 PNG 형식 확인.
+- built-in image generation: `bottom_17/detail_image.png`, `bottom_17/worn_image.png`, `bottom_17/lookbook_image.png` 1차 생성물 strict visual rule 통과 후 저장.
+- `cp -n ...`: 통과한 생성물을 `bottom_17` metadata 경로 3곳에 no-overwrite로 복사.
+- `file menswear_demo_assets/bottoms/bottom_15 ... bottom_17/*.png`: 대상 9개 파일 모두 PNG 형식 확인.
+- `view_image`: 저장된 대상 9개 이미지를 직접 열어 최종 strict visual rule 재검사. 로고, 브랜드 마크, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 발견 없음.
+- `git status --short -- plan.md process.md menswear_demo_assets/bottoms/bottom_15 ... menswear_demo_assets.zip`: `plan.md`, `process.md`, 대상 9개 PNG만 변경/추가됨을 확인. `menswear_demo_assets.zip` 변경 없음.
+
+### 구현한 변경 사항
+
+- 생성 완료:
+  - `menswear_demo_assets/bottoms/bottom_15/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_15/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_15/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_16/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_16/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_16/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_17/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_17/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_17/lookbook_image.png`
+
+### 테스트/검증 결과
+
+- 대상 9개 파일 모두 metadata 경로에 저장 완료.
+- 대상 9개 파일 모두 PNG 형식 확인.
+- 최종 저장본 9개 모두 strict visual rule 육안 검사 통과.
+- strict-rule 실패/재생성: `bottom_15/detail_image.png` 1회 실패 후 1회 재생성. 나머지 8개는 1차 생성 통과.
+- 실패 파일: 없음.
+
+### 남은 작업
+
+- 없음.
+
+## 2026-07-03 09:51 KST - Image Worker 2 하의 이미지 생성 시작
+
+### 작업 목표
+
+`menswear_demo_assets/bottoms/bottom_11`과 `menswear_demo_assets/bottoms/bottom_12`에 누락된 `detail_image.png`, `worn_image.png`, `lookbook_image.png` 총 6개 이미지를 생성한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- `docs/shopping-mall-pyd.md`: PD-001 대표/상세 이미지, PD-005 모델 착용 정보, P-007 룩북 탐색, P-008 코디 세트 탐색, A-006 룩북 관리, NF-002 이미지 품질/성능 요구 확인.
+- `docs/shopping-mall-planning.md`: 상품 상세 이미지, 착용컷, 룩북 이미지가 구매 확신과 착장 탐색의 핵심 자산임을 확인.
+- `docs/customer-personas.md`: 김도현은 룩북/착장 이해, 박준서는 상품 정보 신뢰, 이태오와 최민재는 착용컷/핏/사이즈 판단을 중시함을 확인.
+- `docs/information-architecture.md`, `docs/user-scenarios.md`: PDP와 룩북 경로에서 상품 이미지, 착용 이미지, 룩북 이미지가 연결되는 구조 확인.
+- `/Users/6_month/.codex/skills/.system/imagegen/SKILL.md`: built-in `image_gen` 사용, 프로젝트 자산은 워크스페이스로 복사, 기존 파일 미덮어쓰기 규칙 확인.
+- `menswear_demo_assets/docs/image_generation_prompts.json`: `bottom_11`, `bottom_12`의 정확한 프롬프트 확인.
+
+### 구현 전 확인
+
+- `bottom_11`, `bottom_12` 폴더에는 `metadata.json`만 있고 PNG 파일은 없음.
+- `metadata.json`의 저장 경로:
+  - `bottoms/bottom_11/detail_image.png`
+  - `bottoms/bottom_11/worn_image.png`
+  - `bottoms/bottom_11/lookbook_image.png`
+  - `bottoms/bottom_12/detail_image.png`
+  - `bottoms/bottom_12/worn_image.png`
+  - `bottoms/bottom_12/lookbook_image.png`
+
+### 실행한 명령어와 결과 요약
+
+- `sed -n`: 필수 제품 문서와 imagegen 스킬 지침 확인.
+- `jq '.bottom_11, .bottom_12' menswear_demo_assets/docs/image_generation_prompts.json`: 대상 상품 2개의 정확한 프롬프트 확인.
+- `jq '.' menswear_demo_assets/bottoms/bottom_11/metadata.json`, `bottom_12/metadata.json`: 저장 경로와 상품 메타데이터 확인.
+- `find menswear_demo_assets/bottoms/bottom_11 menswear_demo_assets/bottoms/bottom_12 -maxdepth 1 -type f -print | sort`: 기존 PNG 없음 확인.
+- built-in image generation: `bottom_11/detail_image.png`, `bottom_11/worn_image.png`, `bottom_11/lookbook_image.png`, `bottom_12/detail_image.png`, `bottom_12/worn_image.png`, `bottom_12/lookbook_image.png` 6개를 exact prompt로 생성.
+- `view_image`: 생성물별 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 여부 육안 확인.
+- `cp -n ...`: 통과한 생성물을 각 metadata 경로에 no-overwrite로 복사.
+- `file ...`: 최종 6개 대상 파일이 모두 PNG 형식임을 확인.
+
+### 구현한 변경 사항
+
+- 생성 완료:
+  - `menswear_demo_assets/bottoms/bottom_11/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_11/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_11/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_12/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_12/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_12/lookbook_image.png`
+
+### 테스트/검증 결과
+
+- 파일 존재 및 PNG 형식 확인:
+  - `bottom_11/detail_image.png`: 1024 x 1536 PNG
+  - `bottom_11/worn_image.png`: 1023 x 1537 PNG
+  - `bottom_11/lookbook_image.png`: 1024 x 1536 PNG
+  - `bottom_12/detail_image.png`: 1024 x 1536 PNG
+  - `bottom_12/worn_image.png`: 1023 x 1537 PNG
+  - `bottom_12/lookbook_image.png`: 1023 x 1537 PNG
+- strict visual rule 최종 저장본 6개 모두 통과.
+- strict-rule 실패/재생성: `bottom_11/detail_image.png` 1차 생성물의 버튼에 작은 문자/마킹처럼 보이는 디테일이 있어 실패 처리하고 1회 재생성했다. 나머지 5개 파일은 1차 생성 통과.
+- 실패 파일: 없음.
+
+### 남은 작업
+
+- Image Worker 2 소유 범위 내 남은 작업 없음.
+
+## 2026-07-03 09:50 KST - Image Worker 1 하의 이미지 생성 시작
+
+### 작업 목표
+
+`menswear_demo_assets/bottoms/bottom_07/worn_image.png`와 `menswear_demo_assets/bottoms/bottom_10/detail_image.png`, `worn_image.png`, `lookbook_image.png` 총 4개 누락 이미지를 생성한다.
+
+### 읽은 문서와 확인한 요구사항
+
+- `docs/shopping-mall-pyd.md`: PD-001 대표/상세/착용 이미지, PD-005 모델 착용 정보, P-007 룩북 탐색, P-008 코디 세트 탐색, NF-002 이미지 품질/성능 요구 확인.
+- `docs/shopping-mall-planning.md`: 상품 상세, 룩북, 이미지 정책에서 대표/착용/디테일 이미지 필요성 확인.
+- `docs/customer-personas.md`: 김도현/박준서/이태오/최민재의 룩북, 착용컷, 사이즈 판단, 신뢰 관점 확인.
+- `docs/information-architecture.md`: 상품 상세와 룩북 상세 핵심 데이터에 이미지가 포함됨 확인.
+- `docs/user-scenarios.md`: S-004 사이즈 확인 구매, S-005 룩북 코디 세트 구매 흐름 확인.
+- `docs/design-instruct.md`, `menswear_demo_assets/README.md`, `menswear_demo_assets/docs/brand_direction.md`, `menswear_demo_assets/docs/product_catalog.md`: SLOWEON 가상 브랜드의 미니멀 컨템포러리, no-logo/no-text/no-label 이미지 방향 확인.
+- `menswear_demo_assets/docs/image_generation_prompts.json`: 대상 4개 이미지의 exact prompt 확인.
+- `menswear_demo_assets/bottoms/bottom_07/metadata.json`, `menswear_demo_assets/bottoms/bottom_10/metadata.json`: 저장 경로 확인.
+
+### 현재 계획
+
+- exact prompt text를 변경하지 않고 built-in image generation 도구를 사용한다.
+- 대상 4개 PNG가 존재하지 않음을 확인한 뒤에만 저장한다.
+- 생성 결과에 로고, 브랜드 마크, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼이 보이면 실패로 처리하고 최대 3회 재생성한다.
+- placeholder와 zip 파일은 만들지 않는다.
+
+### 실행한 명령어와 결과 요약
+
+- `wc -l ...`: 필수 문서와 prompt JSON, `plan.md`, `process.md` 존재 확인.
+- `ls -l menswear_demo_assets/bottoms/bottom_07/worn_image.png ...`: 대상 4개 PNG가 모두 존재하지 않아 overwrite 위험이 없음을 확인.
+- `sed -n ...`: 필수 제품/기획/페르소나/IA/시나리오/디자인/브랜드 문서 확인.
+- `jq -r ... menswear_demo_assets/docs/image_generation_prompts.json`: 대상 4개 exact prompt 확인.
+- `sed -n ... metadata.json`: `bottom_07`, `bottom_10` 메타데이터와 경로 확인.
+- Built-in image generation 도구로 4개 이미지를 각각 exact prompt로 생성했다.
+- `cp -n ...`: strict visual rule 검수 통과 이미지 4개를 대상 경로에 no-overwrite 방식으로 복사했다.
+- `file ...`: 4개 대상 파일이 모두 PNG 이미지임을 확인했다.
+- `git status --short`: 다른 워커로 보이는 하의 이미지와 `TODO_GENERATE_IMAGES.md`, `image_generation_failures.json`, `web/prisma/schema.prisma` 변경이 함께 존재함을 확인했으나 건드리지 않았다.
+
+### 구현한 변경 사항
+
+- 생성 완료:
+  - `menswear_demo_assets/bottoms/bottom_07/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_10/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_10/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_10/lookbook_image.png`
+- `plan.md`의 Image Worker 1 체크리스트를 완료 상태로 갱신했다.
+
+### 주요 의사결정과 이유
+
+- 사용자 지시와 prompt JSON을 우선해 프롬프트는 추가 문구 없이 exact prompt 그대로 사용했다.
+- 각 대상 경로가 비어 있음을 확인한 뒤 `cp -n`으로 복사해 기존 PNG overwrite를 방지했다.
+- zip 파일, TODO/실패 JSON, 메타데이터, 앱 코드는 변경하지 않았다.
+
+### strict visual rule 검수 결과
+
+- `bottom_07/worn_image.png`: 1차 생성 통과. 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 없음.
+- `bottom_10/detail_image.png`: 1차 생성 통과. 버튼/리벳은 plain hardware로 보이며 텍스트나 브랜드 마크 없음.
+- `bottom_10/worn_image.png`: 1차 생성 통과. 상의, 데님, 신발, 배경에 텍스트/로고/라벨 없음.
+- `bottom_10/lookbook_image.png`: 1차 생성 통과. stone wall 배경에 signage/typography 없고 의류/신발도 무지 상태.
+- strict-rule 실패 및 재생성: 0건.
+
+### 테스트/검증 결과
+
+- `menswear_demo_assets/bottoms/bottom_07/worn_image.png`: PNG image data, 1024 x 1536, RGB.
+- `menswear_demo_assets/bottoms/bottom_10/detail_image.png`: PNG image data, 1122 x 1402, RGB.
+- `menswear_demo_assets/bottoms/bottom_10/worn_image.png`: PNG image data, 1024 x 1536, RGB.
+- `menswear_demo_assets/bottoms/bottom_10/lookbook_image.png`: PNG image data, 1023 x 1537, RGB.
+
+### 남은 작업
+
+- Image Worker 1 소유 범위 내 남은 작업 없음.
+
 ## 2026-07-02 - 토스페이먼츠(Toss Payments) 결제 연동 구현
 
 ### 작업 목표

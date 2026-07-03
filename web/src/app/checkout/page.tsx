@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getCartItems, calcShippingFee } from "@/lib/cart";
+import { getSelectedCartItems, calcShippingFee } from "@/lib/cart";
 import { getCurrentUser } from "@/lib/auth";
 import { getPointBalance } from "@/lib/points";
 import { CheckoutForm } from "@/components/CheckoutForm";
@@ -11,7 +11,8 @@ import { won, effectivePrice } from "@/lib/format";
 export const metadata = { title: "주문서" };
 
 export default async function CheckoutPage() {
-  const [items, user] = await Promise.all([getCartItems(), getCurrentUser()]);
+  // 선택 주문: 장바구니에서 체크된 항목만 주문서에 진입
+  const [items, user] = await Promise.all([getSelectedCartItems(), getCurrentUser()]);
   if (items.length === 0) redirect("/cart");
 
   const productAmount = items.reduce(

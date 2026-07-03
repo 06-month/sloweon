@@ -38,6 +38,12 @@ export async function getCartItems() {
   });
 }
 
+/** 선택 주문 (기획서 7.5): 체크된 항목만 주문서/결제 대상 */
+export async function getSelectedCartItems() {
+  const items = await getCartItems();
+  return items.filter((item) => item.selected);
+}
+
 /** 로그인 직후 게스트 장바구니를 회원 장바구니로 병합한다 (C-014). */
 export async function mergeGuestCartIntoUser(userId: string) {
   const guestId = await getGuestId();

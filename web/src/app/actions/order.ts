@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { getCartItems, calcShippingFee } from "@/lib/cart";
+import { getSelectedCartItems, calcShippingFee } from "@/lib/cart";
 import { getPointBalance } from "@/lib/points";
 import { effectivePrice } from "@/lib/format";
 
@@ -41,7 +41,7 @@ export async function placeOrder(_prev: OrderFormState, formData: FormData): Pro
   if (!agreed) return { error: "주문 내용 확인 및 결제 진행에 동의해주세요." };
 
   const user = await getCurrentUser();
-  const cartItems = await getCartItems();
+  const cartItems = await getSelectedCartItems();
   if (cartItems.length === 0) return { error: "장바구니가 비어 있습니다." };
 
   // 서버 기준 금액 계산 (O-005)
@@ -319,7 +319,7 @@ export async function prepareOrder(formData: FormData): Promise<PrepareOrderResu
   if (!agreed) return { error: "주문 내용 확인 및 결제 진행에 동의해주세요." };
 
   const user = await getCurrentUser();
-  const cartItems = await getCartItems();
+  const cartItems = await getSelectedCartItems();
   if (cartItems.length === 0) return { error: "장바구니가 비어 있습니다." };
 
   // 재고 사전 검증 (가주문 생성 전)
@@ -370,6 +370,24 @@ export async function prepareOrder(formData: FormData): Promise<PrepareOrderResu
   const number = newOrderNumber();
 
   try {
+    // 결제창을 닫고 다시 시도하는 경우를 위해, 이 회원의 버려진 PENDING 가주문을 정리한다
+    if (user) {
+      const stale = await prisma.order.findMany({
+        where: { userId: user.id, status: "PENDING" },
+        include: { usedCoupons: true },
+      });
+      for (const staleOrder of stale) {
+        await prisma.$transaction([
+          prisma.order.update({ where: { id: staleOrder.id }, data: { status: "CANCELLED" } }),
+          prisma.orderStatusHistory.create({
+            data: { orderId: staleOrder.id, previousStatus: "PENDING", nextStatus: "CANCELLED", changedBy: "SYSTEM" },
+          }),
+          prisma.payment.updateMany({ where: { orderId: staleOrder.id }, data: { status: "FAILED" } }),
+          prisma.userCoupon.updateMany({ where: { orderId: staleOrder.id }, data: { orderId: null } }),
+        ]);
+      }
+    }
+
     await prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
         data: {

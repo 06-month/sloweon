@@ -67,7 +67,8 @@ export function CheckoutForm({
     }
 
     try {
-      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY || "test_ck_qbg2GWZDE3w6NqaPvzoqV5OWd2xe";
+      const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
+      if (!clientKey) throw new Error("결제 설정이 완료되지 않았습니다. (NEXT_PUBLIC_TOSS_CLIENT_KEY)");
       const { loadTossPayments } = await import("@tosspayments/tosspayments-sdk");
       const tossPayments = await loadTossPayments(clientKey);
 
@@ -222,7 +223,9 @@ export function CheckoutForm({
             </label>
           ))}
         </div>
-        <p className="mt-2 text-xs text-ink-faint">데모 환경으로 실제 결제 없이 모의 승인됩니다.</p>
+        <p className="mt-2 text-xs text-ink-faint">
+          토스페이먼츠 테스트 결제창이 열립니다. 테스트 키 환경에서는 실제로 청구되지 않습니다.
+        </p>
       </section>
 
       {/* 클라이언트 미리보기 금액 — 최종 금액은 서버에서 재계산 (O-005) */}

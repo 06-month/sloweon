@@ -48,7 +48,11 @@ export async function login(_prev: AuthFormState, formData: FormData): Promise<A
   const next = String(formData.get("next") ?? "/");
 
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+  if (!user) return { error: "이메일 또는 비밀번호가 일치하지 않습니다." };
+  if (!user.passwordHash) {
+    return { error: "소셜 로그인으로 가입된 계정입니다. 카카오 또는 네이버로 로그인해주세요." };
+  }
+  if (!(await bcrypt.compare(password, user.passwordHash))) {
     return { error: "이메일 또는 비밀번호가 일치하지 않습니다." };
   }
   if (user.status !== "ACTIVE") return { error: "사용할 수 없는 계정입니다." };

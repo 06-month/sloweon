@@ -12,7 +12,7 @@ datasource db {
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
-  passwordHash String
+  passwordHash String? // 소셜 전용 계정은 null
   name         String
   phone        String?
   role         String    @default("MEMBER") // MEMBER | ADMIN
@@ -29,6 +29,20 @@ model User {
   reviews      Review[]
   userCoupons  UserCoupon[]
   pointLedgers PointLedger[]
+  oauthAccounts OAuthAccount[]
+}
+
+model OAuthAccount {
+  id             String   @id @default(cuid())
+  userId         String
+  provider       String // KAKAO | NAVER
+  providerUserId String
+  email          String?
+  linkedAt       DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
 }
 
 model Session {
@@ -157,6 +171,7 @@ model CartItem {
   guestSessionId String?
   variantId      String
   quantity       Int      @default(1)
+  selected       Boolean  @default(true) // 선택 주문: 체크된 항목만 주문서로 진입
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   user           User?    @relation(fields: [userId], references: [id], onDelete: Cascade)

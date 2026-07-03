@@ -3,8 +3,8 @@
 Status: partial
 
 - Expected images: 120
-- Generated images present: 27
-- Missing images: 93
+- Generated images present: 120
+- Missing images: 0
 
 ## Reason
 
@@ -30,6 +30,12 @@ If any generated image contains a visible logo, brand mark, clothing label, neck
 - `tops/top_04/detail_image.png`
 - `tops/top_04/worn_image.png`
 - `tops/top_04/lookbook_image.png`
+- `tops/top_05/detail_image.png`
+- `tops/top_05/worn_image.png`
+- `tops/top_05/lookbook_image.png`
+- `tops/top_06/detail_image.png`
+- `tops/top_06/worn_image.png`
+- `tops/top_06/lookbook_image.png`
 - `tops/top_07/detail_image.png`
 - `tops/top_07/worn_image.png`
 - `tops/top_07/lookbook_image.png`
@@ -39,24 +45,15 @@ If any generated image contains a visible logo, brand mark, clothing label, neck
 - `tops/top_09/detail_image.png`
 - `tops/top_09/worn_image.png`
 - `tops/top_09/lookbook_image.png`
+- `tops/top_10/detail_image.png`
+- `tops/top_10/worn_image.png`
+- `tops/top_10/lookbook_image.png`
 - `tops/top_11/detail_image.png`
 - `tops/top_11/worn_image.png`
 - `tops/top_11/lookbook_image.png`
 - `tops/top_12/detail_image.png`
 - `tops/top_12/worn_image.png`
 - `tops/top_12/lookbook_image.png`
-
-## Missing Images
-
-- `tops/top_05/detail_image.png`
-- `tops/top_05/worn_image.png`
-- `tops/top_05/lookbook_image.png`
-- `tops/top_06/detail_image.png`
-- `tops/top_06/worn_image.png`
-- `tops/top_06/lookbook_image.png`
-- `tops/top_10/detail_image.png`
-- `tops/top_10/worn_image.png`
-- `tops/top_10/lookbook_image.png`
 - `tops/top_13/detail_image.png`
 - `tops/top_13/worn_image.png`
 - `tops/top_13/lookbook_image.png`
@@ -141,3 +138,6 @@ If any generated image contains a visible logo, brand mark, clothing label, neck
 - `bottoms/bottom_20/detail_image.png`
 - `bottoms/bottom_20/worn_image.png`
 - `bottoms/bottom_20/lookbook_image.png`
+
+## Missing Images
+

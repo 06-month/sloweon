@@ -8,7 +8,116 @@
 
 남성 컨템포러리 패션 쇼핑몰을 프론트엔드, 백엔드, 데이터베이스, 인증/권한, 관리자, 운영 관점에서 빠짐없이 구현하기 위한 계획을 정의한다. 구현자는 코드를 수정하기 전에 이 문서를 현재 작업 범위에 맞게 갱신하고, 진행 중 `process.md`를 계속 갱신한다.
 
-### 1.1 Worker B 이미지 생성 작업 목표
+### 1.1 Image Worker 1 하의 이미지 생성 작업 목표 (2026-07-03)
+
+- 작업 목표: 요청된 하의 누락 이미지 4개를 생성한다.
+- 구현 범위:
+  - `menswear_demo_assets/bottoms/bottom_07/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_10/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_10/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_10/lookbook_image.png`
+- 제외 범위: 위 4개 외 모든 PNG, 메타데이터, 프롬프트 문서, 앱 코드, zip 파일 생성/수정.
+- 관련 요구사항 ID: PD-001, PD-005, P-007, P-008, NF-002.
+- 주요 화면 또는 모듈: 상품 상세 이미지, 착용컷, 룩북 이미지 데모 에셋.
+- 데이터 모델 또는 상태 구조: 변경 없음. `metadata.json`의 이미지 경로와 `image_generation_prompts.json`의 프롬프트를 그대로 사용한다.
+- 구현 단계별 체크리스트:
+  - [x] 필수 제품 문서와 이미지 프롬프트 문서 확인
+  - [x] 대상 4개 PNG가 현재 존재하지 않음을 확인
+  - [x] `bottom_07`, `bottom_10`의 `metadata.json` 확인
+  - [x] 각 이미지에 대해 `image_generation_prompts.json`의 정확한 프롬프트로 생성
+  - [x] 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 여부 검사
+  - [x] 실패 시 최대 3회까지 재생성
+  - [x] 최종 PNG를 지정 경로에 저장
+- 검증 방법: 파일 존재 여부와 PNG 형식 확인, 생성 이미지 육안 검사, 엄격 시각 규칙 위반 여부 기록.
+- 리스크와 대응: built-in image generation이 실패하거나 시각 규칙 위반이 3회 반복되면 placeholder를 만들지 않고 실패로 보고한다. 다른 워커 산출물과 zip 파일은 건드리지 않는다.
+- 미정 사항: 없음.
+
+### 1.1.1 Image Worker 3 하의 이미지 생성 작업 목표 (2026-07-03)
+
+- 작업 목표: `bottom_13`, `bottom_14`의 누락된 하의 이미지 6개를 생성한다.
+- 구현 범위:
+  - `menswear_demo_assets/bottoms/bottom_13/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_13/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_13/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_14/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_14/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_14/lookbook_image.png`
+- 제외 범위: 위 6개 PNG 외 모든 파일, 다른 상품 폴더, 메타데이터/프롬프트 문서 수정, zip 파일 생성/수정, placeholder 생성.
+- 관련 요구사항 ID: PD-001, PD-005, P-007, P-008.
+- 주요 화면 또는 모듈: 상품 상세 이미지, 착용컷, 룩북 이미지 데모 에셋.
+- 데이터 모델 또는 상태 구조: 변경 없음. `metadata.json`의 이미지 경로와 `image_generation_prompts.json`의 프롬프트를 그대로 사용한다.
+- 구현 단계별 체크리스트:
+  - [x] 필수 제품 문서와 이미지 프롬프트 문서 확인
+  - [x] 대상 6개 PNG가 현재 존재하지 않음을 확인
+  - [x] `bottom_13`, `bottom_14`의 `metadata.json` 확인
+  - [x] 각 이미지에 대해 `image_generation_prompts.json`의 정확한 프롬프트로 생성
+  - [x] 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 여부 검사
+  - [x] 실패 시 최대 3회까지 재생성
+  - [x] 최종 PNG를 지정 경로에 저장
+- 검증 방법: 파일 존재 여부와 PNG 형식 확인, 생성 이미지 육안 검사, 엄격 시각 규칙 위반 여부 기록.
+- 리스크와 대응: built-in image generation이 실패하거나 시각 규칙 위반이 3회 반복되면 placeholder를 만들지 않고 실패로 보고한다. 다른 워커 산출물과 zip 파일은 건드리지 않는다.
+- 미정 사항: 없음.
+
+### 1.1.2 Image Worker 4 하의 이미지 생성 작업 목표 (2026-07-03)
+
+- 작업 목표: `bottom_15`, `bottom_16`, `bottom_17`의 누락된 하의 이미지 9개를 생성한다.
+- 구현 범위:
+  - `menswear_demo_assets/bottoms/bottom_15/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_15/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_15/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_16/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_16/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_16/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_17/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_17/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_17/lookbook_image.png`
+- 제외 범위: 위 9개 PNG 외 모든 파일, 다른 상품 폴더, 메타데이터/프롬프트 문서 수정, zip 파일 생성/수정, placeholder 생성.
+- 관련 요구사항 ID: PD-001, PD-005, P-007, P-008, NF-002.
+- 주요 화면 또는 모듈: 상품 상세 이미지, 착용컷, 룩북 이미지 데모 에셋.
+- 데이터 모델 또는 상태 구조: 변경 없음. `metadata.json`의 이미지 경로와 `image_generation_prompts.json`의 프롬프트를 그대로 사용한다.
+- 구현 단계별 체크리스트:
+  - [x] 필수 제품 문서와 이미지 프롬프트 문서 확인
+  - [x] 대상 9개 PNG가 현재 존재하지 않음을 확인
+  - [x] `bottom_15`, `bottom_16`, `bottom_17`의 `metadata.json` 확인
+  - [x] 각 이미지에 대해 `image_generation_prompts.json`의 정확한 프롬프트로 생성
+  - [x] 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 여부 검사
+  - [x] 실패 시 최대 3회까지 재생성
+  - [x] 최종 PNG를 지정 경로에 저장
+- 검증 방법: 파일 존재 여부와 PNG 형식 확인, 생성 이미지 육안 검사, 엄격 시각 규칙 위반 여부 기록.
+- 리스크와 대응: built-in image generation이 실패하거나 시각 규칙 위반이 3회 반복되면 placeholder를 만들지 않고 실패로 보고한다. 다른 워커 산출물과 zip 파일은 건드리지 않는다.
+- 미정 사항: 없음.
+
+### 1.1.3 Image Worker 5 하의 이미지 생성 작업 목표 (2026-07-03)
+
+- 작업 목표: `bottom_18`, `bottom_19`, `bottom_20`의 누락된 하의 이미지 9개를 생성한다.
+- 구현 범위:
+  - `menswear_demo_assets/bottoms/bottom_18/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_18/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_18/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_19/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_19/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_19/lookbook_image.png`
+  - `menswear_demo_assets/bottoms/bottom_20/detail_image.png`
+  - `menswear_demo_assets/bottoms/bottom_20/worn_image.png`
+  - `menswear_demo_assets/bottoms/bottom_20/lookbook_image.png`
+- 제외 범위: 위 9개 PNG 외 모든 파일, 다른 상품 폴더, 메타데이터/프롬프트 문서 수정, zip 파일 생성/수정, placeholder 생성.
+- 관련 요구사항 ID: PD-001, PD-005, P-007, P-008, NF-002.
+- 주요 화면 또는 모듈: 상품 상세 이미지, 착용컷, 룩북 이미지 데모 에셋.
+- 데이터 모델 또는 상태 구조: 변경 없음. `metadata.json`의 이미지 경로와 `image_generation_prompts.json`의 프롬프트를 그대로 사용한다.
+- 구현 단계별 체크리스트:
+  - [x] 필수 제품 문서와 이미지 생성 스킬 지침 확인
+  - [x] 대상 9개 PNG가 현재 존재하지 않음을 확인
+  - [x] `bottom_18`, `bottom_19`, `bottom_20`의 `metadata.json` 확인
+  - [x] `image_generation_prompts.json`에서 대상 9개 exact prompt 확인
+  - [x] 각 이미지에 대해 `image_generation_prompts.json`의 정확한 프롬프트로 생성
+  - [x] 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 여부 검사
+  - [x] 실패 시 같은 정확 프롬프트로 최대 3회까지 재생성
+  - [x] 최종 PNG를 `metadata.json`의 경로에 저장
+- 검증 방법: 파일 존재 여부와 PNG 형식 확인, 생성 이미지 육안 검사, 엄격 시각 규칙 위반 여부와 재생성 횟수 기록.
+- 리스크와 대응: built-in image generation 결과에서 엄격 시각 규칙 위반이 확인되면 저장하지 않고 같은 exact prompt로 재생성한다. 3회 내 통과하지 못하거나 복사/저장이 불확실하면 placeholder 없이 실패로 보고한다. 다른 워커 산출물과 zip 파일은 건드리지 않는다.
+- 미정 사항: 없음.
+
+### 1.2 Worker B 이미지 생성 작업 목표
 
 - 작업 목표: `menswear_demo_assets/tops/top_07`부터 `top_10`까지 누락된 상품 이미지 12개를 생성한다.
 - 구현 범위: 각 상품 폴더의 `detail_image.png`, `worn_image.png`, `lookbook_image.png`만 생성한다.
@@ -27,7 +136,7 @@
 - 리스크와 대응: built-in image generation이 실패하면 placeholder를 만들지 않고 실패로 보고한다. 시각 규칙 위반이 확인되면 같은 정확 프롬프트로 최대 3회 재생성한다.
 - 미정 사항: 없음.
 
-### 1.2 Worker A 이미지 생성 작업 목표
+### 1.3 Worker A 이미지 생성 작업 목표
 
 - 작업 목표: `menswear_demo_assets/tops/top_03`부터 `top_06`까지 누락된 상품 이미지 12개를 생성한다.
 - 구현 범위: 각 상품 폴더의 `detail_image.png`, `worn_image.png`, `lookbook_image.png`만 생성한다.
@@ -46,7 +155,7 @@
 - 리스크와 대응: built-in image generation이 실패하면 placeholder를 만들지 않고 실패로 보고한다. 시각 규칙 위반이 확인되면 같은 정확 프롬프트로 최대 3회 재생성한다.
 - 미정 사항: 없음.
 
-### 1.3 웹 애플리케이션 1차 구현 (2026-07-02 착수)
+### 1.4 웹 애플리케이션 1차 구현 (2026-07-02 착수)
 
 - 작업 목표: `web/` 디렉토리에 고객 구매 흐름 중심의 쇼핑몰 웹 앱을 백엔드부터 프론트까지 구현한다.
 - 확정한 기술 스택:
@@ -62,7 +171,7 @@
 - 1차 구현 화면: 홈, 상품 목록(필터/정렬), 상품 상세(옵션/실측표/모델 착용/품절·재입고), 룩북 목록/상세(세트 담기), 장바구니, 주문서, 결제 결과, 로그인/회원가입, 마이페이지(주문), 관리자(주문/재고 최소 기능)
 - 이번 회차 제외: 소셜 로그인, 비밀번호 재설정 메일 발송(토큰 구조만), 쿠폰/포인트 실사용, 리뷰/문의 작성, 교환/반품 요청 화면 — 다음 회차로 이월
 
-### 1.4 홈페이지 및 주요 페이지 카피 개선 (2026-07-02 착수)
+### 1.5 홈페이지 및 주요 페이지 카피 개선 (2026-07-02 착수)
 
 - 작업 목표: 홈페이지와 주요 페이지 내 부자연스러운 문구(카피)를 남성 컨템포러리 브랜드 감성(SLOWEON)에 맞게 세련되고 일관되게 개선한다.
 - 구현 범위:
@@ -84,7 +193,7 @@
 - 검증 방법: 로컬 빌드 통과 여부 및 UI 레이아웃 깨짐 검사.
 - 리스크와 대응: UI 텍스트만 정밀 수정하되, 로직/폼 제출 관련 `name` 속성이나 `value`가 훼손되지 않도록 주의한다.
 
-### 1.5 Vercel 배포를 위한 자산 구조 및 DB Provider 전환 (2026-07-02 착수)
+### 1.6 Vercel 배포를 위한 자산 구조 및 DB Provider 전환 (2026-07-02 착수)
 
 - 작업 목표: 버셀(Vercel) 서버리스 배포를 위해 이미지 파일 서빙 문제를 해결하고 데이터베이스를 SQLite에서 PostgreSQL로 설정 전환한다.
 - 구현 범위:
@@ -100,7 +209,7 @@
 - 검증 방법: 빌드 및 타입체크 성공 여부 검사.
 - 리스크와 대응: 로컬 개발 환경에서 PostgreSQL 접속 정보(DATABASE_URL)가 필요해질 수 있으므로, 사용 방법 가이드를 유저에게 제공하여 원활한 로컬 시딩 및 연동을 유도한다.
 
-### 1.6 토스페이먼츠 결제 연동 (2026-07-02 착수)
+### 1.7 토스페이먼츠 결제 연동 (2026-07-02 착수)
 
 - 작업 목표: 주문서 결제 수단 선택 시 토스페이먼츠 PG사 결제창을 실제로 기동하고, 승인 성공 및 실패 시의 비즈니스 로직(재고 차감, 주문 확정, 쿠폰/포인트 소진)을 트랜잭션으로 안전하게 연동한다.
 - 구현 범위:
@@ -119,6 +228,25 @@
   - [x] 변경 사항 Git 스테이징, 커밋 및 Github origin 푸시
 - 검증 방법: 로컬/버셀 환경 실결제 창 기동 검사 및 테스트 결제 후 DB 데이터 적재와 재고 감소 확인.
 - 리스크와 대응: 결제 처리 중 꼬임(재고는 차감되었는데 PG 승인은 실패함 등)을 막기 위해, DB 반영 전에 PG 승인을 먼저 완료하고, DB 반영 실패 시 PG 자동 취소 API를 트리거하는 이중 검증 롤백 전략을 준수한다.
+
+### 1.8 Image Worker 2 하의 이미지 생성 작업 목표 (2026-07-03)
+
+- 작업 목표: `menswear_demo_assets/bottoms/bottom_11`과 `menswear_demo_assets/bottoms/bottom_12`에 누락된 상품 이미지 6개를 생성한다.
+- 구현 범위: 각 상품 폴더의 `detail_image.png`, `worn_image.png`, `lookbook_image.png`만 생성한다.
+- 제외 범위: 다른 상품 폴더, 기존 PNG 덮어쓰기, 메타데이터 구조 변경, 프롬프트 문구 변경, zip 파일 생성/수정, 앱 코드 변경, placeholder 이미지 생성은 제외한다.
+- 관련 요구사항 ID: PD-001, PD-005, P-007, P-008, A-006, NF-002.
+- 주요 화면 또는 모듈: 상품 상세 이미지, 착용컷, 룩북 이미지 데모 에셋.
+- 데이터 모델 또는 상태 구조: 변경 없음. `metadata.json`의 이미지 경로와 `menswear_demo_assets/docs/image_generation_prompts.json`의 `bottom_11`, `bottom_12` 프롬프트를 그대로 사용한다.
+- 구현 단계별 체크리스트:
+  - [x] 필수 제품 문서와 이미지 생성 스킬 지침 확인
+  - [x] `bottom_11`, `bottom_12`의 `metadata.json`과 누락 이미지 확인
+  - [x] 각 이미지에 대해 `image_generation_prompts.json`의 정확한 프롬프트로 생성
+  - [x] 로고, 라벨, 태그, 워터마크, 인쇄/자수 텍스트, 타이포그래피, 그래픽 심볼 여부 검사
+  - [x] 실패 시 같은 정확 프롬프트로 최대 3회까지 재생성
+  - [x] 최종 PNG를 `metadata.json`의 경로에 저장
+- 검증 방법: 파일 존재 여부와 PNG 형식 확인, 생성 이미지 육안 검사, 엄격 시각 규칙 위반 여부와 재생성 횟수 기록.
+- 리스크와 대응: built-in image generation 결과에서 엄격 시각 규칙 위반이 확인되면 저장하지 않고 재생성한다. 3회 내 통과하지 못하거나 복사/저장이 불확실하면 placeholder 없이 실패로 보고한다.
+- 미정 사항: 없음.
 
 
 ## 2. 기준 문서

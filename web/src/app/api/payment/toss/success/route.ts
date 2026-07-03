@@ -44,8 +44,13 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // 2. 토스페이먼츠 승인 API 호출 준비
-  const secretKey = process.env.TOSS_SECRET_KEY || "test_sk_Z61gEywqZ6qNzaPyjoqVrn1LzNGB";
+  // 2. 토스페이먼츠 승인 API 호출 준비 (키는 .env의 TOSS_SECRET_KEY)
+  const secretKey = process.env.TOSS_SECRET_KEY;
+  if (!secretKey) {
+    return NextResponse.redirect(
+      new URL(`/checkout/fail?code=CONFIG_ERROR&message=${encodeURIComponent("결제 설정이 완료되지 않았습니다. (TOSS_SECRET_KEY)")}`, req.url)
+    );
+  }
   const basicAuth = Buffer.from(secretKey + ":").toString("base64");
 
   try {
@@ -163,13 +168,18 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      // 장바구니 비우기
+      // 장바구니 비우기 — 선택 주문이므로 이번 주문에 포함된 옵션만 제거 (미선택 항목 보존)
+      const orderedVariantIds = order.items.map((item) => item.variantId);
       if (order.userId) {
-        await tx.cartItem.deleteMany({ where: { userId: order.userId } });
+        await tx.cartItem.deleteMany({
+          where: { userId: order.userId, variantId: { in: orderedVariantIds } },
+        });
       } else {
         const guestSessionId = req.cookies.get("sw_guest")?.value;
         if (guestSessionId) {
-          await tx.cartItem.deleteMany({ where: { guestSessionId } });
+          await tx.cartItem.deleteMany({
+            where: { guestSessionId, variantId: { in: orderedVariantIds } },
+          });
         }
       }
     });
